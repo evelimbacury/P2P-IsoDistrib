@@ -1,0 +1,68 @@
+# ==============================================================================
+# PYTHON
+# ==============================================================================
+# Bytecode compilado
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Arquivos de ambiente virtual
+venv/
+env/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Arquivos de distribuição
+dist/
+build/
+*.egg-info/
+*.egg
+
+# Arquivos de configuração IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ==============================================================================
+# ARQUIVOS DO PROJETO (IMPORTANTE!)
+# ==============================================================================
+# NÃO subir os arquivos ISO de teste (são grandes e desnecessários no repo)
+shared_files/*.iso
+downloads/*.iso
+*.iso
+
+# Manter a estrutura de pastas vazia
+!shared_files/.gitkeep
+!downloads/.gitkeep
+
+# Arquivos de log
+*.log
+tracker.log
+peer*.log
+
+# Arquivos temporários de download
+*.part
+*.tmp
+*.chunk
+
+# Arquivos de configuração local
+.env
+config.local.py
+
+# ==============================================================================
+# DOCKER (Opcional)
+# ==============================================================================
+# Volumes do Docker
+docker/volumes/
+
+# ==============================================================================
+# Documentos
+# ==============================================================================
+docs/*.docx
+docs/*.odt
+docs/~$*.docx
