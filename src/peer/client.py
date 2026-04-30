@@ -67,9 +67,7 @@ def heartbeat_loop(tracker_sock, port):
     failures = 0
 
     while heartbeat_running:
-        if tracker_sock is None:
-            failures += 1
-        elif send_heartbeat(tracker_sock, port):
+        if send_heartbeat(tracker_sock, port):
             failures = 0
         else:
             failures += 1

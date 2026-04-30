@@ -33,14 +33,28 @@ def calculate_sha256(filepath):
 
 
 def _request_tracker(tracker_sock, message):
+    with _tracker_io_lock:
+        request_sock = connect_to_tracker()
+        if request_sock is None:
+            return None
+
+        try:
+            return _send_tracker_message(request_sock, message)
+        finally:
+            try:
+                request_sock.close()
+            except OSError:
+                pass
+
+
+def _send_tracker_message(tracker_sock, message):
     if tracker_sock is None:
         return None
 
     try:
-        with _tracker_io_lock:
-            if not send_json(tracker_sock, message):
-                return None
-            return recv_json(tracker_sock)
+        if not send_json(tracker_sock, message):
+            return None
+        return recv_json(tracker_sock)
     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
         return None
 
