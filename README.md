@@ -54,11 +54,11 @@ A comunicação segue o padrão definido em `src/common/protocol.py`. Utilize SE
 
 1.  **REGISTER** (Cliente -> Tracker)
     ```json
-    {"action": "REGISTER", "peer_ip": "127.0.0.1", "port": 6000, "files": ["ubuntu.iso"]}
+    {"action": "REGISTER", "port": 6000, "files": ["ubuntu.iso"], "size": 4980736000, "sha256": "a1b2c3d4e5f6..."}
     ```
 2. HEARTBEAT (Cliente -> Tracker a cada 30s)
     ```json
-    {"action": "HEARTBEAT", "peer_ip": "127.0.0.1", "port": 6000}
+    {"action": "HEARTBEAT", "port": 6000}
     ```
 3. LOOKUP (Cliente -> Tracker)
     ```json
@@ -94,9 +94,10 @@ Após iniciar o `client.py`, o usuário terá acesso aos seguintes comandos:
 
 - `publish <caminho_do_arquivo.iso>`: Calcula SHA256, divide em chunks e registra no Tracker.
 - `search <palavra>`: Busca arquivos disponíveis na rede.
-- `download <nome_do_recurso>`: Inicia o download paralelo (swarm) usando todos os peers disponíveis.
 - `list_local`: Lista os arquivos .iso disponíveis no diretório `shared_files/`.
 - `exit`: Remove o peer do Tracker e encerra o programa.
+
+_Nota: O comando `download` e a transferência peer-to-peer de chunks ainda estão no roadmap. A base atual já publica, busca, envia heartbeat e atualiza chunks no Tracker._
 
 ---
 
@@ -132,5 +133,8 @@ Isso iniciará o ambiente e exibirá os logs de heartbeat e transferência.
 ## 📝 Relatório e Entrega
 
 - Código: Organizado nas pastas src/tracker, src/peer, src/common.
+- Documentação técnica:
+    - `docs/protocolo-e-tracker.md`
+    - `docs/peer-client-e-network.md`
 - Relatório: Localizado em docs/Relatorio.pdf (2-3 páginas explicando arquitetura e testes, com tabelas e gráficos de exemplificação).
 - Vídeo: Link do YouTube (não listado) demonstrando a transferência de uma ISO pequena (ex: FreeDOS) entre 3 peers.
