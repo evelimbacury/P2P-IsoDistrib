@@ -21,10 +21,13 @@ from src.peer.network import (
     send_unregister,
 )
 
-heartbeat_running = True
+# Evento para controle de shutdown
+shutdown_event = threading.Event()
+offline_mode = False
 
 
 def format_size(size_bytes):
+    """Formata tamanho em bytes para representação legível."""
     units = ["B", "KB", "MB", "GB", "TB"]
     size = float(size_bytes)
     for unit in units:
@@ -36,6 +39,7 @@ def format_size(size_bytes):
 
 
 def format_chunks(chunks):
+    """Formata lista de chunks para representação compacta."""
     if not chunks:
         return "none"
 
@@ -55,6 +59,7 @@ def format_chunks(chunks):
 
 
 def is_inside_shared_folder(filepath):
+    """Verifica se o arquivo está dentro da pasta compartilhada."""
     shared_root = os.path.abspath(SHARED_FOLDER)
     candidate = os.path.abspath(filepath)
     try:
@@ -64,21 +69,48 @@ def is_inside_shared_folder(filepath):
 
 
 def heartbeat_loop(tracker_sock, port):
+    """
+    Thread que envia heartbeats periodicamente.
+    Se a conexão falhar, tenta reconectar automaticamente.
+    """
+    global offline_mode
     failures = 0
+    current_sock = tracker_sock
 
-    while heartbeat_running:
-        if send_heartbeat(tracker_sock, port):
+    while not shutdown_event.is_set():
+        if offline_mode:
+            shutdown_event.wait(HEARTBEAT_INTERVAL)
+            continue
+
+        if current_sock is None:
+            # Tenta reconectar ao tracker
+            current_sock = connect_to_tracker()
+            if current_sock is None:
+                failures += 1
+                if failures == 3:
+                    print("[Warning] Tracker unreachable")
+                shutdown_event.wait(HEARTBEAT_INTERVAL / 2)
+                continue
+
+        if send_heartbeat(current_sock, port):
             failures = 0
         else:
             failures += 1
+            # Conexão perdida, fecha socket e zera para reconectar na próxima iteração
+            try:
+                current_sock.close()
+            except OSError:
+                pass
+            current_sock = None
 
         if failures == 3:
             print("[Warning] Tracker unreachable")
 
-        time.sleep(HEARTBEAT_INTERVAL)
+        shutdown_event.wait(HEARTBEAT_INTERVAL)
 
 
 def list_local_files():
+    """Lista arquivos .iso disponíveis na pasta compartilhada."""
     if not os.path.isdir(SHARED_FOLDER):
         os.makedirs(SHARED_FOLDER, exist_ok=True)
 
@@ -102,6 +134,7 @@ def list_local_files():
 
 
 def print_search_results(result):
+    """Exibe resultados de busca formatados."""
     file_info = result["file_info"]
     peers = result["peers"]
 
@@ -116,6 +149,7 @@ def print_search_results(result):
 
 
 def print_help():
+    """Exibe comandos disponíveis."""
     print("Commands:")
     print("  publish <path.iso>")
     print("  search <word|sha256:hash>")
@@ -124,10 +158,9 @@ def print_help():
 
 
 def shutdown(tracker_sock, peer_port):
-    global heartbeat_running
-
-    heartbeat_running = False
-    if tracker_sock is not None:
+    """Finaliza graciosamente o peer."""
+    shutdown_event.set()
+    if tracker_sock is not None and not offline_mode:
         try:
             send_unregister(tracker_sock, peer_port)
         except (BrokenPipeError, OSError):
@@ -141,6 +174,7 @@ def shutdown(tracker_sock, peer_port):
 
 
 def run_cli(tracker_sock, peer_port):
+    """Loop principal da CLI."""
     while True:
         try:
             raw_command = input("peer> ").strip()
@@ -214,17 +248,30 @@ def run_cli(tracker_sock, peer_port):
             print(f"[Error] Network error: {exc}")
 
 
+def validate_port(value):
+    """Valida se a porta está no intervalo 1-65535."""
+    try:
+        port = int(value)
+        if not (1 <= port <= 65535):
+            raise argparse.ArgumentTypeError(f"Port must be between 1 and 65535, got {port}")
+        return port
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Port must be an integer, got '{value}'")
+
+
 def parse_args():
+    """Configura e processa argumentos da linha de comando."""
     parser = argparse.ArgumentParser(description="P2P-IsoDistrib peer client")
-    parser.add_argument("--port", type=int, default=PEER_BASE_PORT, help="Peer port")
+    parser.add_argument("--port", type=validate_port, default=PEER_BASE_PORT,
+                        help="Peer listening port (1-65535)")
     return parser.parse_args()
 
 
 def main():
-    global heartbeat_running
+    """Função principal do peer."""
+    global offline_mode
 
-    heartbeat_running = True
-    peer_ip = "127.0.0.1"
+    peer_ip = "127.0.0.1"  # Para exibição local
     args = parse_args()
     peer_port = args.port
 
@@ -232,14 +279,16 @@ def main():
     os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
     print(f"[Peer] Started on {peer_ip}:{peer_port}")
-    tracker_sock = connect_to_tracker()
 
+    tracker_sock = connect_to_tracker()
     if tracker_sock is None:
         choice = input("[Peer] Continue offline? [y/N] ").strip().lower()
         if choice not in {"y", "yes"}:
             print("[Peer] Shutting down...")
             return 1
+        offline_mode = True
 
+    # Inicia thread de heartbeat com o socket persistente
     heartbeat_thread = threading.Thread(
         target=heartbeat_loop,
         args=(tracker_sock, peer_port),

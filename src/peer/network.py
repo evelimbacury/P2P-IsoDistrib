@@ -14,6 +14,7 @@ _tracker_io_lock = threading.Lock()
 
 
 def connect_to_tracker():
+    """Cria e retorna um socket conectado ao tracker."""
     tracker_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         tracker_sock.connect((TRACKER_HOST, TRACKER_PORT))
@@ -25,6 +26,7 @@ def connect_to_tracker():
 
 
 def calculate_sha256(filepath):
+    """Calcula o hash SHA256 de um arquivo."""
     digest = hashlib.sha256()
     with open(filepath, "rb") as file_obj:
         for block in iter(lambda: file_obj.read(4096), b""):
@@ -32,50 +34,29 @@ def calculate_sha256(filepath):
     return digest.hexdigest()
 
 
-def _request_tracker(tracker_sock, message):
-    with _tracker_io_lock:
-        request_sock = connect_to_tracker()
-        if request_sock is None:
-            return None
-
-        try:
-            return _send_tracker_message(request_sock, message)
-        finally:
-            try:
-                request_sock.close()
-            except OSError:
-                pass
-
-
-def _send_tracker_message(tracker_sock, message):
+def _send_tracker_message(tracker_sock, message, timeout=10):
+    """
+    Envia uma mensagem JSON e aguarda a resposta usando o socket fornecido.
+    Aplica lock para serializar o uso do socket.
+    Retorna o dicionário de resposta ou None em caso de erro.
+    """
     if tracker_sock is None:
         return None
 
-    try:
-        if not send_json(tracker_sock, message):
+    with _tracker_io_lock:
+        try:
+            if not send_json(tracker_sock, message):
+                return None
+            return recv_json(tracker_sock, timeout=timeout)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             return None
-        return recv_json(tracker_sock)
-    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
-        return None
 
 
-def _resolve_port_and_filepath(peer_ip_or_port, peer_port_or_filepath=None, filepath=None):
-    if filepath is None:
-        return peer_ip_or_port, peer_port_or_filepath
-    return peer_port_or_filepath, filepath
-
-
-def _resolve_port(peer_ip_or_port, peer_port=None):
-    return peer_ip_or_port if peer_port is None else peer_port
-
-
-def send_register(tracker_sock, peer_ip_or_port, peer_port_or_filepath=None, filepath=None):
-    port, filepath = _resolve_port_and_filepath(
-        peer_ip_or_port,
-        peer_port_or_filepath,
-        filepath,
-    )
-
+def send_register(tracker_sock, port, filepath):
+    """
+    Registra um arquivo .iso no tracker.
+    Retorna True se registrado com sucesso, False caso contrário.
+    """
     if not filepath or not os.path.exists(filepath):
         print(f"[Error] File not found: {filepath}")
         return False
@@ -87,6 +68,7 @@ def send_register(tracker_sock, peer_ip_or_port, peer_port_or_filepath=None, fil
     filename = os.path.basename(filepath)
     size = os.path.getsize(filepath)
     sha256 = calculate_sha256(filepath)
+
     message = {
         "action": ACTION_REGISTER,
         "port": port,
@@ -95,7 +77,7 @@ def send_register(tracker_sock, peer_ip_or_port, peer_port_or_filepath=None, fil
         "sha256": sha256,
     }
 
-    response = _request_tracker(tracker_sock, message)
+    response = _send_tracker_message(tracker_sock, message)
     if response and response.get("status") == "OK":
         print(f"[Published] {filename} registered on tracker")
         return True
@@ -105,21 +87,26 @@ def send_register(tracker_sock, peer_ip_or_port, peer_port_or_filepath=None, fil
     return False
 
 
-def send_heartbeat(tracker_sock, peer_ip_or_port, peer_port=None):
-    port = _resolve_port(peer_ip_or_port, peer_port)
+def send_heartbeat(tracker_sock, port):
+    """Envia sinal de heartbeat para o tracker."""
     message = {
         "action": ACTION_HEARTBEAT,
         "port": port,
     }
 
-    response = _request_tracker(tracker_sock, message)
+    response = _send_tracker_message(tracker_sock, message, timeout=5)
     if not response:
         return False
 
-    return response.get("status") not in {"ERROR"}
+    status = response.get("status", "")
+    return status not in {"ERROR"}
 
 
 def send_lookup(tracker_sock, filename=None, sha256=None):
+    """
+    Busca por arquivo no tracker (por nome ou hash SHA256).
+    Retorna o dicionário completo da resposta se encontrado, None caso contrário.
+    """
     if sha256:
         message = {
             "action": ACTION_LOOKUP,
@@ -133,7 +120,7 @@ def send_lookup(tracker_sock, filename=None, sha256=None):
         }
         query = filename or ""
 
-    response = _request_tracker(tracker_sock, message)
+    response = _send_tracker_message(tracker_sock, message)
     if response and response.get("status") == "FOUND":
         return response
 
@@ -147,18 +134,19 @@ def send_lookup(tracker_sock, filename=None, sha256=None):
     return None
 
 
-def send_unregister(tracker_sock, peer_ip_or_port, peer_port=None):
-    port = _resolve_port(peer_ip_or_port, peer_port)
+def send_unregister(tracker_sock, port):
+    """Remove o peer do tracker."""
     message = {
         "action": ACTION_UNREGISTER,
         "port": port,
     }
 
-    response = _request_tracker(tracker_sock, message)
+    response = _send_tracker_message(tracker_sock, message, timeout=5)
     return bool(response and response.get("status") == "OK")
 
 
 def send_update_chunks(tracker_sock, port, filename, chunks_available):
+    """Informa ao tracker quais chunks o peer possui disponíveis."""
     message = {
         "action": ACTION_UPDATE_CHUNKS,
         "port": port,
@@ -166,5 +154,5 @@ def send_update_chunks(tracker_sock, port, filename, chunks_available):
         "chunks_available": list(chunks_available),
     }
 
-    response = _request_tracker(tracker_sock, message)
+    response = _send_tracker_message(tracker_sock, message)
     return bool(response and response.get("status") == "OK")
