@@ -20,6 +20,10 @@ from src.peer.network import (
     send_register,
     send_unregister,
 )
+from src.peer.file_manager import (
+    download_file_parallel,
+    start_upload_server,
+)
 
 # Evento para controle de shutdown
 shutdown_event = threading.Event()
@@ -153,6 +157,7 @@ def print_help():
     print("Commands:")
     print("  publish <path.iso>")
     print("  search <word|sha256:hash>")
+    print("  download <filename>")
     print("  list_local")
     print("  exit")
 
@@ -224,6 +229,35 @@ def run_cli(tracker_sock, peer_port):
                 else:
                     print(f"[Search] No results for '{query}'")
 
+            elif command == "download":
+                if not args:
+                    print("[Error] Usage: download <filename>")
+                    continue
+
+                if tracker_sock is None:
+                    print("[Error] Cannot download: not connected to tracker")
+                    continue
+
+                query = args[0]
+                result = send_lookup(tracker_sock, filename=query)
+                if result is None:
+                    continue
+
+                file_info = result.get("file_info", {})
+                peers_list = result.get("peers", [])
+
+                if not peers_list:
+                    print(f"[Download] No peers available for {query}")
+                    continue
+
+                path = download_file_parallel(file_info, peers_list)
+                if path:
+                    print(f"[Download] Saved to {path}")
+                    if tracker_sock is not None:
+                        send_register(tracker_sock, peer_port, path)
+                else:
+                    print(f"[Download] Failed to download {file_info.get('name', query)}")
+
             elif command == "list_local":
                 list_local_files()
 
@@ -278,6 +312,7 @@ def main():
     os.makedirs(SHARED_FOLDER, exist_ok=True)
     os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
+    start_upload_server(peer_port)
     print(f"[Peer] Started on {peer_ip}:{peer_port}")
 
     tracker_sock = connect_to_tracker()

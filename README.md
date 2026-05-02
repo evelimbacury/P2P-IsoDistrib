@@ -10,38 +10,38 @@
 - José Santo Moura Neto - Download Paralelo / SHA256
 - Gabriel Moriz da Silva - Docker / Testes / Relatório
 
+---
 
-
-## 📋 Definição do Tema 7 (ISOs)
+## Definição do Tema 7 (ISOs)
 
 - **Tipo de Arquivo:** `.iso` (Imagens de disco de sistemas operacionais, bootáveis).
-- **Contexto de Uso:** Laboratório de informática ou Install Fests. Baixar uma ISO de 4GB+ da internet uma única vez e distribuí-la rapidamente via rede local (LAN), evitando gargalos no link externo.
+- **Contexto de Uso:** Laboratório de informática ou Install Fests. Baixar uma ISO de 4 GB+ da internet uma única vez e distribuí-la rapidamente via rede local (LAN), evitando gargalos no link externo.
 - **Metadados Específicos:**
     - `name`: Nome do arquivo (ex: `ubuntu-24.04-desktop-amd64.iso`).
     - `size`: Tamanho total em bytes.
     - `sha256`: **Checksum SHA256** (Obrigatório). Garante que a ISO não foi corrompida ou adulterada durante a transferência fragmentada.
 - **Extensão Obrigatória (Grupo de 4 pessoas):**
-    - **Download Paralelo (Swarm Download):** O cliente deve ser capaz de baixar diferentes pedaços (chunks) da ISO de diferentes peers simultaneamente, juntá-los ao final e validar o hash.
+    - **Download Paralelo (Swarm Download):** O cliente baixa diferentes chunks da ISO de diferentes peers simultaneamente, remonta ao final e valida o hash.
 
+---
 
-
-## 🏗️ Arquitetura do Sistema
+## Arquitetura do Sistema
 
 O sistema segue uma arquitetura P2P Híbrida:
-1.  **Tracker (Servidor Central):** Mantém registro dos peers ativos e o mapeamento de quem possui qual chunk de qual arquivo. **Não armazena os arquivos.**
-2.  **Peers (Clientes):** Registram os arquivos ISO que possuem, consultam o Tracker para localizar fontes e baixam chunks diretamente uns dos outros via TCP.
+1. **Tracker (Servidor Central):** Mantém registro dos peers ativos e o mapeamento de quem possui qual chunk de qual arquivo. **Não armazena os arquivos.**
+2. **Peers (Clientes):** Registram os arquivos ISO que possuem, consultam o Tracker para localizar fontes e baixam chunks diretamente uns dos outros via TCP.
 
 ```
 [Tracker] <-- (JSON/Heartbeat) --> [Peer A]
-^ |
-| (Consulta "Quem tem ubuntu.iso?") |
-| v
-[Peer C] <---- (Transferência Chunks TCP) ----> [Peer B]
+    ^  |
+    |  (Consulta "Quem tem ubuntu.iso?")
+    |  v
+[Peer C] <---- (Transferencia Chunks TCP) ----> [Peer B]
 ```
 
 ---
 
-## 📡 Protocolo de Comunicação
+## Protocolo de Comunicação
 
 A comunicação segue o padrão definido em `src/common/protocol.py`. Utilize SEMPRE as constantes desse arquivo.
 
@@ -52,89 +52,230 @@ A comunicação segue o padrão definido em `src/common/protocol.py`. Utilize SE
 
 ### Comandos do Tracker (JSON)
 
-1.  **REGISTER** (Cliente -> Tracker)
+1. **REGISTER** (Peer → Tracker)
     ```json
     {"action": "REGISTER", "port": 6000, "files": ["ubuntu.iso"], "size": 4980736000, "sha256": "a1b2c3d4e5f6..."}
     ```
-2. HEARTBEAT (Cliente -> Tracker a cada 30s)
+2. **HEARTBEAT** (Peer → Tracker a cada 30s)
     ```json
     {"action": "HEARTBEAT", "port": 6000}
     ```
-3. LOOKUP (Cliente -> Tracker)
+3. **LOOKUP** (Peer → Tracker)
     ```json
     {"action": "LOOKUP", "filename": "ubuntu.iso"}
     ```
-
-Resposta Esperada do Tracker:
-```json
+    Resposta do Tracker:
+    ```json
     {
         "status": "FOUND",
-        "file_info": {
-            "name": "ubuntu.iso",
-            "size": 4980736000,
-            "sha256": "a1b2c3d4e5f6..."
-        },
+        "file_info": {"name": "ubuntu.iso", "size": 4980736000, "sha256": "a1b2c3d4e5f6..."},
         "peers": [
             {"ip": "192.168.1.10", "port": 6000, "chunks_available": [0, 1, 2]},
             {"ip": "192.168.1.20", "port": 6001, "chunks_available": [3, 4, 5]}
         ]
     }
+    ```
+4. **UPDATE_CHUNKS** (Peer → Tracker)
+    ```json
+    {"action": "UPDATE_CHUNKS", "port": 6000, "filename": "ubuntu.iso", "chunks_available": [0, 1, 2]}
+    ```
+5. **UNREGISTER** (Peer → Tracker)
+    ```json
+    {"action": "UNREGISTER", "port": 6000}
+    ```
+
+### Transferência Peer-to-Peer (Binário)
+
+**GET_CHUNK** (Peer A → Peer B)
+- Requisição JSON: `{"action": "GET_CHUNK", "filename": "ubuntu.iso", "chunk_index": 5}\n`
+- Resposta: cabeçalho binário `!IIQ` (chunk_index, total_chunks, data_length) + dados do chunk
+
+---
+
+## Comandos da CLI
+
+Após iniciar o `client.py`, o usuário tem acesso aos seguintes comandos:
+
+| Comando | Descrição |
+| :--- | :--- |
+| `publish <arquivo.iso>` | Calcula SHA256, registra no Tracker e passa a servir chunks |
+| `search <palavra\|sha256:hash>` | Busca arquivos disponíveis na rede pelo nome ou hash |
+| `download <nome>` | Baixa o arquivo em paralelo de múltiplos peers com verificação SHA256 |
+| `list_local` | Lista os arquivos `.iso` disponíveis em `shared_files/` |
+| `exit` | Remove o peer do Tracker e encerra o programa |
+
+---
+
+## O que foi implementado
+
+### Transferência P2P de Chunks (`src/peer/file_manager.py`)
+
+**Servidor de upload** — cada peer serve seus chunks para outros peers:
+- `start_upload_server(port)` — sobe servidor TCP na porta do peer ao iniciar
+- `handle_upload_request` — recebe `GET_CHUNK`, faz `seek()` no offset correto e responde com cabeçalho binário + dados; busca o arquivo em `shared_files/` e, como fallback, em `downloads/` (peer que baixou também vira semeador)
+
+**Download paralelo** — baixa de múltiplos peers ao mesmo tempo:
+- `download_file_parallel(file_info, peers_list)` — divide o arquivo em chunks de 1 MB, escala até **4 threads simultâneas**, distribui chunks pelos peers priorizando os menos carregados, exibe barra de progresso em tempo real, remonta o arquivo final e verifica SHA256; em caso de mismatch o arquivo corrompido é deletado automaticamente
+- `download_single_chunk` — baixa um chunk com **retry automático** em até 3 peers diferentes em caso de falha, incluindo quedas no meio da transferência
+
+**Fluxo completo de um download:**
+```
+peer> download ubuntu.iso
+[Download] Starting download of ubuntu.iso (4.98 GB, 4750 chunks) from 2 peers
+[Download] ubuntu.iso: [########--------]  52% (2470/4750) - 2 peers active - 12.5 MB/s
+[Download] Assembling ubuntu.iso...
+[Download] Verifying SHA256...
+[Success] File verified! ubuntu.iso is intact.
+[Download] Saved to downloads\ubuntu.iso
 ```
 
-### Comandos Peer-to-Peer (Binário)
-
-- GET_CHUNK (Cliente A -> Cliente B)
-    - Envia: `{"action": "GET_CHUNK", "filename": "ubuntu.iso", "chunk_index": 0}\n`
-    - Recebe: `<4 bytes tamanho (int)><dados binários do chunk>`
-
-
-## 🚀 Comandos do Cliente (CLI)
-
-Após iniciar o `client.py`, o usuário terá acesso aos seguintes comandos:
-
-- `publish <caminho_do_arquivo.iso>`: Calcula SHA256, divide em chunks e registra no Tracker.
-- `search <palavra>`: Busca arquivos disponíveis na rede.
-- `list_local`: Lista os arquivos .iso disponíveis no diretório `shared_files/`.
-- `exit`: Remove o peer do Tracker e encerra o programa.
-
-_Nota: O comando `download` e a transferência peer-to-peer de chunks ainda estão no roadmap. A base atual já publica, busca, envia heartbeat e atualiza chunks no Tracker._
+Após o download, o peer se registra automaticamente no Tracker como semeador do arquivo recém-baixado.
 
 ---
 
-## 🔧 Configuração do Ambiente (Desenvolvimento)
+## Configuração do Ambiente
 
-1. Instalar Dependências:
-    ```bash
-    pip install -r requirements.txt
-    ```
-2. Executar o Tracker:
-    ```bash
-    python src/tracker/tracker.py
-    ```
+### Pré-requisitos
 
-3. Executar o Cliente (em outro terminal):
-    ```bash
-    python src/peer/client.py
-    ```
+- Python 3.10+ (testado com Python 3.12)
+- Windows 10/11, Linux ou macOS
 
-_Nota: Para testes locais, cada cliente precisa de uma porta diferente. Altere no código ou use argumentos de linha de comando._
+### 1. Clonar o repositório
 
----
-## 🐳 Testes com Docker
-Para simular a rede com 1 Tracker e 3 Peers isolados:
 ```bash
-docker-compose up --build    
+git clone <url-do-repositorio>
+cd P2P-IsoDistrib
 ```
 
-Isso iniciará o ambiente e exibirá os logs de heartbeat e transferência.
+### 2. Criar a virtual environment
+
+```bash
+python -m venv .venv
+```
+
+### 3. Instalar dependências
+
+**Windows (MSYS2 / Git Bash):**
+```bash
+.venv/bin/pip install -r requirements.txt
+```
+
+**Windows (PowerShell / CMD nativo):**
+```powershell
+.venv\Scripts\pip install -r requirements.txt
+```
+
+**Linux / macOS:**
+```bash
+.venv/bin/pip install -r requirements.txt
+```
+
+> **Observação:** O projeto usa caminhos no estilo `.venv/bin/python` nos exemplos abaixo (compatível com MSYS2/Git Bash e Linux/macOS). No PowerShell/CMD nativo do Windows, substitua `/` por `\` e `bin` por `Scripts`.
+
+### 4. Executar manualmente
+
+**Terminal 1 — Tracker:**
+```bash
+.venv/bin/python -m src.tracker.tracker
+```
+
+**Terminal 2 — Peer (porta 6000):**
+```bash
+.venv/bin/python -m src.peer.client --port 6000
+```
+
+**Terminal 3 — Peer (porta 6001):**
+```bash
+.venv/bin/python -m src.peer.client --port 6001
+```
 
 ---
 
-## 📝 Relatório e Entrega
+## Demo Automática (Windows)
 
-- Código: Organizado nas pastas src/tracker, src/peer, src/common.
+O arquivo `demo.bat` abre automaticamente 4 terminais e executa o experimento completo:
+
+```
+Tracker | Peer 6000 (publica) | Peer 6001 (publica) | Peer 6002 (baixa)
+```
+
+```
+.\demo.bat
+```
+
+O script:
+1. Gera `shared_files/test.iso` com **500 MB** (na primeira execução; reutiliza nas seguintes)
+2. Limpa `downloads/` de execuções anteriores
+3. Sobe o Tracker
+4. Peers 6000 e 6001 publicam automaticamente (calculam SHA256 + registram)
+5. Peer 6002 aguarda 5 s, faz o download em paralelo e exibe a barra de progresso ao vivo
+6. Se não encontrar peers na primeira tentativa, retenta automaticamente até 10 vezes
+
+> **Observação — arquivo de teste simulado:**
+> O `test.iso` gerado pelo demo é preenchido com zeros (`\x00`), **não é uma ISO real**.
+> Serve exclusivamente para validar o protocolo de transferência e a integridade SHA256.
+> Para testar com uma imagem real, substitua `shared_files/test.iso` por qualquer `.iso`
+> (ex: `ubuntu-24.04-desktop-amd64.iso`) e ajuste o nome nos comandos de `publish` e `download`.
+
+**Barra de progresso no terminal do Peer 6002:**
+```
+[Download] test.iso: [########--------]  52% (260/500) - 4 peers active - 198.40 MB/s
+```
+
+**Após o download, verificar integridade:**
+```bash
+.venv/bin/python scripts/verify.py
+```
+
+---
+
+## Scripts Utilitários
+
+| Script | Descrição |
+| :--- | :--- |
+| `scripts/verify.py` | Compara SHA256 de `shared_files/test.iso` com `downloads/test.iso` |
+| `scripts/demo_peer.py` | Wrapper interno do demo.bat: injeta comando automático no peer |
+| `scripts/create_test_iso.py` | Gera `shared_files/test.iso` com 500 MB de zeros para teste (mock, não é ISO real) |
+| `scripts/demo_progress.py` | Demo standalone da barra de progresso com 500 MB em loopback |
+
+---
+
+## Testes Automatizados
+
+```bash
+.venv/bin/pytest tests/ -v
+```
+
+| Arquivo | Cobertura | Testes |
+| :--- | :--- | :--- |
+| `test_tracker_unit.py` | Lógica interna do tracker (register, lookup, heartbeat, timeout, unregister) | 8 |
+| `test_tracker_integration.py` | Tracker com sockets TCP reais | 4 |
+| `test_peer_logic.py` | format_size, format_chunks, SHA256, fluxo de rede | 5 |
+| `test_protocol.py` | send/recv JSON fragmentado, cabeçalho binário de chunk | 3 |
+| `test_file_manager_unit.py` | format_size, _recv_data, handle_upload_request (incluindo fallback downloads/) | 11 |
+| `test_file_manager_integration.py` | download_single_chunk, download_file_parallel, retry mid-transfer, 100 MB | 17 |
+| `test_download_cli.py` | Comando `download` na CLI — erros, sucesso, registro como seeder | 9 |
+| Carga / Churn / Extremos / Lookup | Múltiplos peers simultâneos, alta carga, lookup sob pressão | 13 |
+
+**Resultado esperado:** `70 passed`
+
+---
+
+## Docker *(em desenvolvimento)*
+
+Suporte a Docker está previsto para simular a rede com 1 Tracker e múltiplos Peers isolados:
+
+```bash
+docker-compose up --build
+```
+
+---
+
+## Relatório e Entrega
+
+- Código: Organizado nas pastas `src/tracker`, `src/peer`, `src/common`
 - Documentação técnica:
     - `docs/protocolo-e-tracker.md`
     - `docs/peer-client-e-network.md`
-- Relatório: Localizado em docs/Relatorio.pdf (2-3 páginas explicando arquitetura e testes, com tabelas e gráficos de exemplificação).
-- Vídeo: Link do YouTube (não listado) demonstrando a transferência de uma ISO pequena (ex: FreeDOS) entre 3 peers.
+- Relatório: `docs/Relatorio.pdf` (2-3 páginas com arquitetura e testes)
+- Vídeo: Link do YouTube demonstrando a transferência de uma ISO entre 3 peers
