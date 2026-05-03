@@ -104,6 +104,78 @@ Após iniciar o `client.py`, o usuário tem acesso aos seguintes comandos:
 | `list_local` | Lista os arquivos `.iso` disponíveis em `shared_files/` |
 | `exit` | Remove o peer do Tracker e encerra o programa |
 
+## Interface Gráfica (Tkinter)
+
+Além da CLI, o peer também pode ser usado por uma interface gráfica feita com
+Tkinter. O Tkinter faz parte da biblioteca padrão, mas o Python precisa ter o
+suporte nativo Tcl/Tk instalado.
+
+No macOS com Python do Homebrew, instale o pacote Tk da mesma versão do Python e
+crie a venv usando esse interpretador:
+
+```bash
+brew install python-tk@3.14
+python3.14 -m tkinter
+
+python3.14 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/python -m tkinter
+```
+
+Em Linux, instale o pacote do sistema antes de criar a venv:
+
+```bash
+# Debian/Ubuntu
+sudo apt install python3-tk
+
+# Fedora
+sudo dnf install python3-tkinter
+
+# Arch/Manjaro
+sudo pacman -S tk
+```
+
+No Windows, use o instalador oficial do Python e mantenha a opção **tcl/tk and
+IDLE** habilitada. Se a venv foi criada antes de instalar o suporte ao Tk,
+recrie a venv.
+
+Para testar:
+
+```bash
+python -m tkinter
+```
+
+> Não instale `tkinter` via `pip`. Se aparecer
+> `ModuleNotFoundError: No module named '_tkinter'`, instale o suporte Tcl/Tk no
+> Python do sistema e recrie a venv.
+
+### Rodar a GUI
+
+```bash
+.venv/bin/python -m src.gui.main
+```
+
+A GUI possui abas para:
+
+- **Conexão:** porta do peer, status do tracker, controle iniciar/parar e estado do servidor de upload.
+- **Arquivos Locais:** listagem de arquivos `.iso` em `shared_files/`, SHA256 e publicação no tracker.
+- **Buscar:** busca por nome ou `sha256:<hash>`, com tabela de peers e chunks disponíveis.
+- **Downloads:** barra de progresso, velocidade, chunks concluídos e status de verificação.
+- **Logs:** mensagens emitidas pela camada de aplicação, sem depender da leitura do terminal.
+
+### Organização modular da interface
+
+A CLI e a GUI usam a mesma camada de sessão em `src/app/peer_session.py`.
+Essa classe concentra o ciclo de vida do peer: iniciar upload server, conectar
+ao tracker, manter heartbeat, publicar, buscar, baixar e encerrar. Assim,
+`src/peer/client.py` continua sendo apenas uma interface de terminal, enquanto
+`src/gui/main_window.py` é apenas uma interface gráfica sobre o mesmo núcleo.
+
+Os modelos compartilhados ficam em `src/app/models.py`, e eventos de log,
+status e progresso são emitidos por `src/app/events.py`. O download paralelo em
+`src/peer/file_manager.py` aceita callbacks `on_progress` e `on_log`, permitindo
+que a GUI atualize barras de progresso e logs sem capturar `print()`.
+
 ---
 
 ## O que foi implementado

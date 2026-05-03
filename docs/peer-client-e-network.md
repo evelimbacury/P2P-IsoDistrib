@@ -4,16 +4,24 @@ Este documento descreve o estado atual da implementação do peer após a criaç
 
 ## Visão geral
 
-O peer atual possui duas responsabilidades implementadas:
+O peer atual possui as seguintes responsabilidades implementadas:
 
 - `src/peer/network.py`: encapsula a comunicação TCP com o tracker, cálculo de SHA256 e envio das ações `REGISTER`, `HEARTBEAT`, `LOOKUP`, `UNREGISTER` e `UPDATE_CHUNKS`.
-- `src/peer/client.py`: oferece uma CLI interativa para publicar ISOs, buscar arquivos no tracker, listar arquivos locais e encerrar o peer com unregister.
+- `src/peer/file_manager.py`: implementa o servidor de upload de chunks e o download paralelo com remontagem e verificação SHA256.
+- `src/app/peer_session.py`: concentra o ciclo de vida do peer para ser reutilizado pela CLI e pela GUI.
+- `src/peer/client.py`: oferece uma CLI interativa para publicar ISOs, buscar arquivos no tracker, baixar arquivos, listar arquivos locais e encerrar o peer com unregister.
+- `src/gui/main_window.py`: oferece uma interface gráfica Tkinter sobre a mesma camada `PeerSession`.
 
-Ainda não há transferência peer-to-peer de chunks. O cliente registra e descobre fontes pelo tracker, mas o servidor P2P de chunks, o download paralelo e a remontagem do arquivo ainda são etapas futuras.
+A transferência peer-to-peer de chunks já está implementada. O cliente registra e descobre fontes pelo tracker, baixa chunks de múltiplos peers em paralelo, remonta o arquivo em `downloads/` e valida o SHA256 antes de aceitar o resultado.
 
 ## Arquivos principais
 
 - `src/peer/client.py`
+- `src/app/models.py`
+- `src/app/events.py`
+- `src/app/peer_session.py`
+- `src/gui/main.py`
+- `src/gui/main_window.py`
 - `src/peer/network.py`
 - `src/peer/file_manager.py`
 - `src/common/protocol.py`
