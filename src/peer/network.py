@@ -38,20 +38,27 @@ def calculate_sha256(filepath):
 
 def _send_tracker_message(tracker_sock, message, timeout=10):
     """
-    Envia uma mensagem JSON e aguarda a resposta usando o socket fornecido.
-    Aplica lock para serializar o uso do socket.
+    Envia uma mensagem JSON ao tracker usando uma conexão curta.
+    O parâmetro tracker_sock é mantido por compatibilidade com a CLI e testes.
     Retorna o dicionário de resposta ou None em caso de erro.
     """
     if tracker_sock is None:
         return None
 
     with _tracker_io_lock:
+        request_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            if not send_json(tracker_sock, message):
+            request_sock.connect((TRACKER_HOST, TRACKER_PORT))
+            if not send_json(request_sock, message):
                 return None
-            return recv_json(tracker_sock, timeout=timeout)
+            return recv_json(request_sock, timeout=timeout)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             return None
+        finally:
+            try:
+                request_sock.close()
+            except OSError:
+                pass
 
 
 def send_register(tracker_sock, port, filepath):
