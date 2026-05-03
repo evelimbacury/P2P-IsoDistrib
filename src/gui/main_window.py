@@ -6,7 +6,7 @@ from tkinter import filedialog, messagebox, ttk
 from src.app.events import AppEvent
 from src.app.models import DownloadProgress, SearchResult
 from src.app.peer_session import PeerSession
-from src.common.protocol import PEER_BASE_PORT
+from src.common.protocol import PEER_BASE_PORT, SHARED_FOLDER
 from src.peer.client import format_chunks, format_size
 
 
@@ -258,11 +258,27 @@ class P2PGui(tk.Tk):
         if not self._require_session():
             return
 
+        if not self._is_inside_shared_folder(path):
+            message = (
+                f"{path} está fora de {SHARED_FOLDER}/. "
+                "Ele será servido por esta instância enquanto ela estiver aberta."
+            )
+            messagebox.showwarning("Arquivo fora da pasta compartilhada", message)
+            self._append_log(f"[Warning] {message}")
+
         def worker():
             self.session.publish(path)
             self._refresh_local_files()
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _is_inside_shared_folder(self, path):
+        shared_root = os.path.abspath(SHARED_FOLDER)
+        candidate = os.path.abspath(path)
+        try:
+            return os.path.commonpath([shared_root, candidate]) == shared_root
+        except ValueError:
+            return False
 
     def _search(self):
         if not self._require_session():
@@ -418,4 +434,3 @@ class P2PGui(tk.Tk):
 def main():
     app = P2PGui()
     app.mainloop()
-
