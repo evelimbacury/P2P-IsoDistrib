@@ -6,7 +6,7 @@
 
 **Integrantes:**
 - Evelim Bacury Rocha - Arquiteta / Tracker
-- Márcio Éric Lamêgo Valente - Peer Core / CLI
+- Márcio Éric Lamêgo Valente - Peer Core / CLI / GUI
 - José Santo Moura Neto - Download Paralelo / SHA256
 - Gabriel Moriz da Silva - Docker / Testes / Relatório
 
@@ -109,6 +109,8 @@ Após iniciar o `client.py`, o usuário tem acesso aos seguintes comandos:
 Além da CLI, o peer também pode ser usado por uma interface gráfica feita com
 Tkinter. O Tkinter faz parte da biblioteca padrão, mas o Python precisa ter o
 suporte nativo Tcl/Tk instalado.
+
+Documentacao completa da GUI: `docs/interface-grafica-tkinter.md`.
 
 No macOS com Python do Homebrew, instale o pacote Tk da mesma versão do Python e
 crie a venv usando esse interpretador:
