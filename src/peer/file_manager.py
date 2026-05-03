@@ -25,11 +25,42 @@ def format_size(size_bytes):
         size /= 1024
 
 
+def _emit_log(on_log, message):
+    if on_log:
+        on_log(message)
+    else:
+        print(message)
+
+
+def _emit_progress(
+    on_progress,
+    filename,
+    completed_chunks,
+    total_chunks,
+    active_peers,
+    speed_bytes_per_second,
+    status="downloading",
+):
+    if not on_progress:
+        return
+
+    percent = int(completed_chunks / total_chunks * 100) if total_chunks > 0 else 0
+    on_progress({
+        "filename": filename,
+        "completed_chunks": completed_chunks,
+        "total_chunks": total_chunks,
+        "percent": percent,
+        "active_peers": active_peers,
+        "speed_bytes_per_second": speed_bytes_per_second,
+        "status": status,
+    })
+
+
 # ==============================================================================
 # UPLOAD SERVER (serve chunks to other peers)
 # ==============================================================================
 
-def start_upload_server(peer_port):
+def start_upload_server(peer_port, on_log=None):
     """Create and start a TCP server for serving file chunks."""
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -38,32 +69,32 @@ def start_upload_server(peer_port):
 
     thread = threading.Thread(
         target=serve_uploads_forever,
-        args=(server_socket,),
+        args=(server_socket, on_log),
         daemon=True,
     )
     thread.start()
 
-    print(f"[Upload] Server listening on port {peer_port}")
+    _emit_log(on_log, f"[Upload] Server listening on port {peer_port}")
     return server_socket
 
 
-def serve_uploads_forever(server_socket):
+def serve_uploads_forever(server_socket, on_log=None):
     """Accept incoming chunk requests indefinitely."""
     while True:
         try:
             client_sock, address = server_socket.accept()
             threading.Thread(
                 target=handle_upload_request,
-                args=(client_sock, address),
+                args=(client_sock, address, on_log),
                 daemon=True,
             ).start()
         except OSError:
             break
         except Exception as e:
-            print(f"[Upload] Error accepting connection: {e}")
+            _emit_log(on_log, f"[Upload] Error accepting connection: {e}")
 
 
-def handle_upload_request(client_sock, address):
+def handle_upload_request(client_sock, address, on_log=None):
     """Serve a single GET_CHUNK request from a peer."""
     try:
         request = recv_json(client_sock)
@@ -91,14 +122,15 @@ def handle_upload_request(client_sock, address):
         client_sock.sendall(data)
 
         ip, port = address
-        print(
-            f"\n[Upload] Sent chunk {chunk_index + 1}/{total_chunks}"
-            f" ({format_size(len(data))}) to {ip}:{port}"
+        _emit_log(
+            on_log,
+            f"[Upload] Sent chunk {chunk_index + 1}/{total_chunks}"
+            f" ({format_size(len(data))}) to {ip}:{port}",
         )
 
     except Exception as e:
         ip, port = address
-        print(f"\n[Upload] Error handling request from {ip}:{port}: {e}")
+        _emit_log(on_log, f"[Upload] Error handling request from {ip}:{port}: {e}")
     finally:
         client_sock.close()
 
@@ -126,6 +158,7 @@ def download_single_chunk(
     chunks_status, chunks_lock,
     peer_workload, workload_lock,
     active_count, active_lock,
+    on_log=None,
 ):
     """Download one chunk, retrying on different peers on failure."""
     primary_key = f"{peers_with_chunk[0]['ip']}:{peers_with_chunk[0]['port']}"
@@ -165,14 +198,15 @@ def download_single_chunk(
                 with chunks_lock:
                     chunks_status[chunk_index] = part_path
 
-                print(
-                    f"\n[Chunk] {chunk_index + 1}/{total_chunks}"
-                    f" downloaded from {peer['ip']}:{peer['port']}"
+                _emit_log(
+                    on_log,
+                    f"[Chunk] {chunk_index + 1}/{total_chunks}"
+                    f" downloaded from {peer['ip']}:{peer['port']}",
                 )
                 return True
 
             except Exception as e:
-                print(f"\n[Chunk] Failed chunk {chunk_index} from {peer_key}: {e}")
+                _emit_log(on_log, f"[Chunk] Failed chunk {chunk_index} from {peer_key}: {e}")
             finally:
                 if sock:
                     try:
@@ -189,7 +223,7 @@ def download_single_chunk(
             peer_workload[primary_key] = max(0, peer_workload.get(primary_key, 0) - 1)
 
 
-def download_file_parallel(file_info, peers_list):
+def download_file_parallel(file_info, peers_list, on_progress=None, on_log=None):
     """Download a file in parallel from multiple peers. Returns local path or None."""
     filename = file_info["name"]
     file_size = file_info["size"]
@@ -206,10 +240,11 @@ def download_file_parallel(file_info, peers_list):
     active_count = [0]
     active_lock = threading.Lock()
 
-    print(
+    _emit_log(
+        on_log,
         f"[Download] Starting download of {filename}"
         f" ({format_size(file_size)}, {total_chunks} chunks)"
-        f" from {len(peers_list)} peers"
+        f" from {len(peers_list)} peers",
     )
 
     last_done = [0]
@@ -235,16 +270,26 @@ def download_file_parallel(file_info, peers_list):
             with active_lock:
                 active = active_count[0]
 
-            print(
-                f"\r[Download] {filename}: [{bar}] {pct}%"
-                f" ({done}/{total_chunks})"
-                f" - {active} peers active"
-                f" - {format_size(speed_bytes)}/s",
-                end="", flush=True,
+            _emit_progress(
+                on_progress,
+                filename,
+                done,
+                total_chunks,
+                active,
+                speed_bytes,
             )
+            if not on_progress:
+                print(
+                    f"\r[Download] {filename}: [{bar}] {pct}%"
+                    f" ({done}/{total_chunks})"
+                    f" - {active} peers active"
+                    f" - {format_size(speed_bytes)}/s",
+                    end="", flush=True,
+                )
 
     progress_thread = threading.Thread(target=show_progress, daemon=True)
     progress_thread.start()
+    _emit_progress(on_progress, filename, 0, total_chunks, 0, 0)
 
     active_threads = []
 
@@ -257,7 +302,7 @@ def download_file_parallel(file_info, peers_list):
                     available_peers.append(peer)
 
             if not available_peers:
-                print(f"\n[Download] No peers have chunk {chunk_index}")
+                _emit_log(on_log, f"[Download] No peers have chunk {chunk_index}")
                 continue
 
             with workload_lock:
@@ -280,6 +325,7 @@ def download_file_parallel(file_info, peers_list):
                     chunks_status, chunks_lock,
                     peer_workload, workload_lock,
                     active_count, active_lock,
+                    on_log,
                 ),
                 daemon=True,
             )
@@ -291,14 +337,25 @@ def download_file_parallel(file_info, peers_list):
 
     finally:
         stop_progress.set()
-        print()  # end progress bar line
+        if not on_progress:
+            print()  # end progress bar line
 
     failed = [i for i, s in enumerate(chunks_status) if s is None]
     if failed:
-        print(f"[Download] Failed: {len(failed)} chunks missing")
+        _emit_log(on_log, f"[Download] Failed: {len(failed)} chunks missing")
+        _emit_progress(
+            on_progress,
+            filename,
+            total_chunks - len(failed),
+            total_chunks,
+            0,
+            0,
+            status="failed",
+        )
         return None
 
-    print(f"[Download] Assembling {filename}...")
+    _emit_progress(on_progress, filename, total_chunks, total_chunks, 0, 0, status="assembling")
+    _emit_log(on_log, f"[Download] Assembling {filename}...")
     with open(dest_path, "wb") as out_file:
         for i in range(total_chunks):
             with open(chunks_status[i], "rb") as part:
@@ -310,7 +367,8 @@ def download_file_parallel(file_info, peers_list):
         except OSError:
             pass
 
-    print("[Download] Verifying SHA256...")
+    _emit_progress(on_progress, filename, total_chunks, total_chunks, 0, 0, status="verifying")
+    _emit_log(on_log, "[Download] Verifying SHA256...")
     digest = hashlib.sha256()
     with open(dest_path, "rb") as f:
         for block in iter(lambda: f.read(65536), b""):
@@ -318,13 +376,16 @@ def download_file_parallel(file_info, peers_list):
     actual_sha256 = digest.hexdigest()
 
     if actual_sha256 == expected_sha256:
-        print(f"[Success] File verified! {filename} is intact.")
+        _emit_progress(on_progress, filename, total_chunks, total_chunks, 0, 0, status="complete")
+        _emit_log(on_log, f"[Success] File verified! {filename} is intact.")
         return dest_path
 
-    print(
+    _emit_progress(on_progress, filename, total_chunks, total_chunks, 0, 0, status="failed")
+    _emit_log(
+        on_log,
         f"[Error] SHA256 mismatch!\n"
         f"  Expected: {expected_sha256}\n"
-        f"  Got:      {actual_sha256}"
+        f"  Got:      {actual_sha256}",
     )
     try:
         os.remove(dest_path)

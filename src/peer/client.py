@@ -12,6 +12,8 @@ from src.common.protocol import (
     HEARTBEAT_INTERVAL, PEER_BASE_PORT,
     SHARED_FOLDER, DOWNLOAD_FOLDER,
 )
+from src.app.models import SearchResult
+from src.app.peer_session import PeerSession
 from src.peer.network import (
     calculate_sha256,
     connect_to_tracker,
@@ -115,32 +117,26 @@ def heartbeat_loop(tracker_sock, port):
 
 def list_local_files():
     """Lista arquivos .iso disponíveis na pasta compartilhada."""
-    if not os.path.isdir(SHARED_FOLDER):
-        os.makedirs(SHARED_FOLDER, exist_ok=True)
+    local_files = PeerSession.scan_local_files(calculate_sha256)
 
-    iso_files = [
-        filename
-        for filename in sorted(os.listdir(SHARED_FOLDER))
-        if filename.lower().endswith(".iso")
-        and os.path.isfile(os.path.join(SHARED_FOLDER, filename))
-    ]
-
-    if not iso_files:
+    if not local_files:
         print(f"[Local] No .iso files found in {SHARED_FOLDER}/")
         return
 
     print("[Local Files]")
-    for filename in iso_files:
-        filepath = os.path.join(SHARED_FOLDER, filename)
-        size = format_size(os.path.getsize(filepath))
-        sha256 = calculate_sha256(filepath)
-        print(f"{filename:<36} | {size:<10} | SHA256: {sha256}")
+    for local_file in local_files:
+        size = format_size(local_file.size)
+        print(f"{local_file.name:<36} | {size:<10} | SHA256: {local_file.sha256}")
 
 
 def print_search_results(result):
     """Exibe resultados de busca formatados."""
-    file_info = result["file_info"]
-    peers = result["peers"]
+    if isinstance(result, SearchResult):
+        file_info = result.file_info.to_dict()
+        peers = [peer.to_dict() for peer in result.peers]
+    else:
+        file_info = result["file_info"]
+        peers = result["peers"]
 
     print("[Search Results]")
     print(f"File: {file_info['name']}")
@@ -183,13 +179,32 @@ def shutdown(tracker_sock, peer_port, upload_server_sock=None):
     print("[Peer] Shutting down...")
 
 
-def run_cli(tracker_sock, peer_port, upload_server_sock=None):
+def build_cli_session(tracker_sock, peer_port, upload_server_sock=None):
+    """Cria uma PeerSession usando as operações atuais do módulo da CLI."""
+    return PeerSession(
+        port=peer_port,
+        tracker_sock=tracker_sock,
+        upload_server_sock=upload_server_sock,
+        register_func=send_register,
+        heartbeat_func=send_heartbeat,
+        lookup_func=send_lookup,
+        unregister_func=send_unregister,
+        download_func=download_file_parallel,
+        upload_server_func=start_upload_server,
+        sha256_func=calculate_sha256,
+    )
+
+
+def run_cli(tracker_sock, peer_port, upload_server_sock=None, session=None):
     """Loop principal da CLI."""
+    session = session or build_cli_session(tracker_sock, peer_port, upload_server_sock)
+
     while True:
         try:
             raw_command = input("peer> ").strip()
         except EOFError:
-            shutdown(tracker_sock, peer_port, upload_server_sock)
+            session.stop()
+            print("[Peer] Shutting down...")
             return
 
         if not raw_command:
@@ -215,7 +230,7 @@ def run_cli(tracker_sock, peer_port, upload_server_sock=None):
                 if not is_inside_shared_folder(filepath):
                     print("[Warning] File is not in shared_files/ folder. Other peers may not find it.")
 
-                send_register(tracker_sock, peer_port, filepath)
+                session.publish(filepath)
 
             elif command == "search":
                 if not args:
@@ -223,11 +238,7 @@ def run_cli(tracker_sock, peer_port, upload_server_sock=None):
                     continue
 
                 query = args[0]
-                if query.startswith("sha256:"):
-                    sha256 = query.split(":", 1)[1]
-                    result = send_lookup(tracker_sock, sha256=sha256)
-                else:
-                    result = send_lookup(tracker_sock, filename=query)
+                result = session.search(query)
 
                 if result:
                     print_search_results(result)
@@ -239,27 +250,26 @@ def run_cli(tracker_sock, peer_port, upload_server_sock=None):
                     print("[Error] Usage: download <filename>")
                     continue
 
-                if tracker_sock is None:
+                if session.tracker_sock is None or session.offline_mode:
                     print("[Error] Cannot download: not connected to tracker")
                     continue
 
                 query = args[0]
-                result = send_lookup(tracker_sock, filename=query)
+                result = session.search(query)
                 if result is None:
                     continue
 
-                file_info = result.get("file_info", {})
-                peers_list = result.get("peers", [])
+                file_info = result.file_info.to_dict()
+                peers_list = [peer.to_dict() for peer in result.peers]
 
                 if not peers_list:
                     print(f"[Download] No peers available for {query}")
                     continue
 
-                path = download_file_parallel(file_info, peers_list)
+                path = session._call_download(file_info, peers_list)
                 if path:
                     print(f"[Download] Saved to {path}")
-                    if tracker_sock is not None:
-                        send_register(tracker_sock, peer_port, path)
+                    session.register_func(session.tracker_sock, peer_port, path)
                 else:
                     print(f"[Download] Failed to download {file_info.get('name', query)}")
 
@@ -270,7 +280,8 @@ def run_cli(tracker_sock, peer_port, upload_server_sock=None):
                 print_help()
 
             elif command == "exit":
-                shutdown(tracker_sock, peer_port)
+                session.stop()
+                print("[Peer] Shutting down...")
                 sys.exit(0)
 
             else:
@@ -317,32 +328,26 @@ def main():
     os.makedirs(SHARED_FOLDER, exist_ok=True)
     os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
-    upload_server_sock = start_upload_server(peer_port)
+    session = PeerSession(port=peer_port)
+    started = session.start(allow_offline=False)
     print(f"[Peer] Started on {peer_ip}:{peer_port}")
 
-    tracker_sock = connect_to_tracker()
-    if tracker_sock is None:
+    if not started:
         choice = input("[Peer] Continue offline? [y/N] ").strip().lower()
         if choice not in {"y", "yes"}:
             print("[Peer] Shutting down...")
-            if upload_server_sock:
-                upload_server_sock.close()
+            session.stop(unregister=False)
             return 1
+        session = PeerSession(port=peer_port)
+        session.start(allow_offline=True)
         offline_mode = True
 
-    # Inicia thread de heartbeat com o socket persistente
-    heartbeat_thread = threading.Thread(
-        target=heartbeat_loop,
-        args=(tracker_sock, peer_port),
-        daemon=True,
-    )
-    heartbeat_thread.start()
-
     try:
-        run_cli(tracker_sock, peer_port, upload_server_sock)
+        run_cli(session.tracker_sock, peer_port, session.upload_server_sock, session=session)
     except KeyboardInterrupt:
         print()
-        shutdown(tracker_sock, peer_port, upload_server_sock)
+        session.stop()
+        print("[Peer] Shutting down...")
         return 0
 
     return 0

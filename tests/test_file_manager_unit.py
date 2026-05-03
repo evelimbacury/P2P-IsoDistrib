@@ -101,8 +101,10 @@ def test_recv_data_single_large_block():
     s1, s2 = socket.socketpair()
     try:
         data = os.urandom(CHUNK_SIZE)
-        s2.sendall(data)
+        sender = threading.Thread(target=lambda: s2.sendall(data), daemon=True)
+        sender.start()
         result = _recv_data(s1, CHUNK_SIZE)
+        sender.join(timeout=2)
         assert result == data
     finally:
         s1.close()
