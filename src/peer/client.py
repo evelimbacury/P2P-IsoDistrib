@@ -8,6 +8,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+from src.common.logging_config import get_logger, setup_logging
 from src.common.protocol import (
     HEARTBEAT_INTERVAL, PEER_BASE_PORT,
     SHARED_FOLDER, DOWNLOAD_FOLDER,
@@ -27,7 +28,9 @@ from src.peer.file_manager import (
     start_upload_server,
 )
 
-# Evento para controle de shutdown
+logger = get_logger("P2P-IsoDistrib.Peer")
+PEER_LOG_FILE = os.path.abspath(os.path.join(PROJECT_ROOT, "peer.log"))
+
 shutdown_event = threading.Event()
 offline_mode = False
 
@@ -89,12 +92,11 @@ def heartbeat_loop(tracker_sock, port):
             continue
 
         if current_sock is None:
-            # Tenta reconectar ao tracker
             current_sock = connect_to_tracker()
             if current_sock is None:
                 failures += 1
                 if failures == 3:
-                    print("[Warning] Tracker unreachable")
+                    logger.warning("[Peer] Tracker unreachable")
                 shutdown_event.wait(HEARTBEAT_INTERVAL / 2)
                 continue
 
@@ -102,7 +104,6 @@ def heartbeat_loop(tracker_sock, port):
             failures = 0
         else:
             failures += 1
-            # Conexão perdida, fecha socket e zera para reconectar na próxima iteração
             try:
                 current_sock.close()
             except OSError:
@@ -110,7 +111,7 @@ def heartbeat_loop(tracker_sock, port):
             current_sock = None
 
         if failures == 3:
-            print("[Warning] Tracker unreachable")
+            logger.warning("[Peer] Tracker unreachable")
 
         shutdown_event.wait(HEARTBEAT_INTERVAL)
 
@@ -176,6 +177,7 @@ def shutdown(tracker_sock, peer_port, upload_server_sock=None):
                 upload_server_sock.close()
             except OSError:
                 pass
+    logger.info("[Peer] Shutting down")
     print("[Peer] Shutting down...")
 
 
@@ -204,6 +206,7 @@ def run_cli(tracker_sock, peer_port, upload_server_sock=None, session=None):
             raw_command = input("peer> ").strip()
         except EOFError:
             session.stop()
+            logger.info("[Peer] Shutting down")
             print("[Peer] Shutting down...")
             return
 
@@ -281,6 +284,7 @@ def run_cli(tracker_sock, peer_port, upload_server_sock=None, session=None):
 
             elif command == "exit":
                 session.stop()
+                logger.info("[Peer] Shutting down")
                 print("[Peer] Shutting down...")
                 sys.exit(0)
 
@@ -289,13 +293,13 @@ def run_cli(tracker_sock, peer_port, upload_server_sock=None, session=None):
                 print_help()
 
         except BrokenPipeError:
-            print("[Warning] Tracker connection was lost")
+            logger.warning("[Peer] Tracker connection was lost")
         except ConnectionRefusedError:
-            print("[Warning] Tracker refused the connection")
+            logger.warning("[Peer] Tracker refused the connection")
         except KeyboardInterrupt:
             raise
         except OSError as exc:
-            print(f"[Error] Network error: {exc}")
+            logger.error("[Peer] Network error: %s", exc)
 
 
 def validate_port(value):
@@ -321,7 +325,9 @@ def main():
     """Função principal do peer."""
     global offline_mode
 
-    peer_ip = "127.0.0.1"  # Para exibição local
+    setup_logging(log_file=PEER_LOG_FILE)
+
+    peer_ip = "127.0.0.1"
     args = parse_args()
     peer_port = args.port
 
@@ -330,11 +336,13 @@ def main():
 
     session = PeerSession(port=peer_port)
     started = session.start(allow_offline=False)
+    logger.info("[Peer] Started on %s:%s", peer_ip, peer_port)
     print(f"[Peer] Started on {peer_ip}:{peer_port}")
 
     if not started:
         choice = input("[Peer] Continue offline? [y/N] ").strip().lower()
         if choice not in {"y", "yes"}:
+            logger.info("[Peer] Shutting down")
             print("[Peer] Shutting down...")
             session.stop(unregister=False)
             return 1
@@ -347,6 +355,7 @@ def main():
     except KeyboardInterrupt:
         print()
         session.stop()
+        logger.info("[Peer] Shutting down")
         print("[Peer] Shutting down...")
         return 0
 

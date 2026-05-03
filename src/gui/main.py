@@ -1,4 +1,9 @@
 def main():
+    from src.peer.client import PEER_LOG_FILE
+    from src.common.logging_config import setup_logging
+
+    setup_logging(log_file=PEER_LOG_FILE)
+
     try:
         from src.gui.main_window import main as run_gui
     except ModuleNotFoundError as exc:

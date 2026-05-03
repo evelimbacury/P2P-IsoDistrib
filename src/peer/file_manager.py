@@ -4,6 +4,7 @@ import socket
 import threading
 import time
 
+from src.common.logging_config import get_logger
 from src.common.protocol import (
     CHUNK_SIZE, BUFFER_SIZE, DOWNLOAD_FOLDER, SHARED_FOLDER,
     ACTION_GET_CHUNK,
@@ -11,6 +12,7 @@ from src.common.protocol import (
     send_chunk_header, recv_chunk_header,
 )
 
+logger = get_logger("P2P-IsoDistrib.Peer")
 MAX_CONCURRENT_DOWNLOADS = 4
 
 
@@ -29,7 +31,7 @@ def _emit_log(on_log, message):
     if on_log:
         on_log(message)
     else:
-        print(message)
+        logger.info(message)
 
 
 def _emit_progress(
@@ -55,10 +57,6 @@ def _emit_progress(
         "status": status,
     })
 
-
-# ==============================================================================
-# UPLOAD SERVER (serve chunks to other peers)
-# ==============================================================================
 
 def start_upload_server(peer_port, on_log=None):
     """Create and start a TCP server for serving file chunks."""
@@ -134,10 +132,6 @@ def handle_upload_request(client_sock, address, on_log=None):
     finally:
         client_sock.close()
 
-
-# ==============================================================================
-# DOWNLOAD (parallel chunk download from multiple peers)
-# ==============================================================================
 
 def _recv_data(sock, data_len):
     """Receive exactly data_len bytes, returning None on connection failure."""
@@ -338,7 +332,7 @@ def download_file_parallel(file_info, peers_list, on_progress=None, on_log=None)
     finally:
         stop_progress.set()
         if not on_progress:
-            print()  # end progress bar line
+            print()
 
     failed = [i for i, s in enumerate(chunks_status) if s is None]
     if failed:

@@ -7,13 +7,13 @@ Execução (a partir da raiz do projeto):
     python -m src.tracker.tracker
 """
 
-import logging
 import os
 import socket
 import threading
 import json
 import time
 
+from src.common.logging_config import get_logger, setup_logging
 from src.common.protocol import (
     TRACKER_BIND_HOST,
     TRACKER_PORT,
@@ -53,18 +53,14 @@ from src.common.protocol import (
 peers_dict = {}
 peers_lock = threading.Lock()
 
-# Evento para sinalizar parada do servidor
 stop_event = threading.Event()
 
-# Controle de exibição de log de heartbeat (evita poluir o terminal)
 heartbeat_log_counter = {}
 heartbeat_log_lock = threading.Lock()
 
-logger = logging.getLogger("P2P-IsoDistrib")
+logger = get_logger()
 LOG_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "tracker.log"))
-LOG_LEVEL = logging.INFO
 
-# Limite de conexões simultâneas
 MAX_CONNECTIONS = 1000
 LISTEN_BACKLOG = 256
 active_connections = 0
@@ -72,25 +68,6 @@ connection_lock = threading.Lock()
 
 peer_last_heartbeat_time = {}
 HEARTBEAT_MIN_INTERVAL = 1  # Mínimo 1 segundo entre heartbeats do mesmo peer
-
-
-def setup_logging():
-    """Configura saída de log para console e arquivo."""
-    if logger.handlers:
-        return
-    logger.setLevel(LOG_LEVEL)
-    formatter = logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
-
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-
-    try:
-        file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    except Exception as e:
-        logger.warning(f"Unable to create log file {LOG_FILE}: {e}")
 
 
 # ==============================================================================
@@ -171,7 +148,7 @@ def handle_register(data, addr):
     O IP usado é **exclusivamente** o da conexão (addr[0]), ignorando qualquer campo 'peer_ip'.
     """
     try:
-        peer_ip = addr[0]  # ← CORREÇÃO DE SEGURANÇA
+        peer_ip = addr[0]
         peer_port = data.get("port")
         files = data.get("files", [])
         size = data.get("size", 0)
@@ -240,7 +217,7 @@ def handle_heartbeat(data, addr):
     O IP usado é o da conexão real.
     """
     try:
-        peer_ip = addr[0]  # ← CORREÇÃO DE SEGURANÇA
+        peer_ip = addr[0]
         peer_port = data.get("port")
     except (KeyError, TypeError) as e:
         return {"status": "ERROR", "message": f"Invalid request format: {e}"}
@@ -253,7 +230,6 @@ def handle_heartbeat(data, addr):
 
     peer_key = f"{peer_ip}:{peer_port}"
 
-    # Rate limiting
     now = time.time()
     if peer_key in peer_last_heartbeat_time:
         time_since_last = now - peer_last_heartbeat_time[peer_key]
@@ -309,21 +285,17 @@ def handle_lookup(data, addr):
         for peer_key, peer_info in items:
             for fname, finfo in peer_info["files"].items():
                 match = False
-                # Busca por hash tem precedência
                 if sha256_query:
                     if finfo["sha256"] == sha256_query:
                         match = True
                 else:
-                    # Busca por substring no nome
                     if filename_query.lower() in fname.lower():
                         match = True
 
                 if match:
-                    # Controle de integridade: todos os peers devem ter o mesmo sha256
                     if first_sha256 is None:
                         first_sha256 = finfo["sha256"]
                     elif finfo["sha256"] != first_sha256:
-                        # Conflito de conteúdo com mesmo nome → ignoramos esse peer
                         logger.warning(
                             f"[Tracker] [Lookup] Ignoring peer {peer_key} for '{fname}' "
                             f"due to hash mismatch ({finfo['sha256']} vs {first_sha256})"
@@ -369,7 +341,7 @@ def handle_unregister(data, addr):
     O IP usado é o da conexão real.
     """
     try:
-        peer_ip = addr[0]  # ← CORREÇÃO DE SEGURANÇA
+        peer_ip = addr[0]
         peer_port = data["port"]
     except KeyError as e:
         return {"status": "ERROR", "message": f"Missing required field: {e}"}
@@ -420,7 +392,6 @@ def handle_update_chunks(data, addr):
         if filename not in peer_info["files"]:
             return {"status": "ERROR", "message": "File not registered for this peer"}
 
-        # Remove duplicatas e ordena
         peer_info["files"][filename]["chunks_available"] = sorted(set(chunks_available))
         logger.info(
             f"[Tracker] [UpdateChunks] Peer {peer_key} updated '{filename}' "
@@ -502,7 +473,6 @@ def handle_client(client_socket, addr):
         except Exception:
             pass
     finally:
-        # ← CORREÇÃO CRÍTICA: limpar buffer do socket para evitar contaminação
         clear_recv_buffer(client_socket)
         try:
             client_socket.close()
@@ -568,7 +538,7 @@ def tracker_console():
 
 def main():
     global active_connections
-    setup_logging()
+    setup_logging(log_file=LOG_FILE)
     logger.info("=" * 60)
     logger.info("  P2P-IsoDistrib - Tracker Server (Tema 7)")
     logger.info("=" * 60)

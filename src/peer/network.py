@@ -3,6 +3,7 @@ import os
 import socket
 import threading
 
+from src.common.logging_config import get_logger
 from src.common.protocol import (
     TRACKER_HOST, TRACKER_PORT,
     ACTION_REGISTER, ACTION_HEARTBEAT, ACTION_LOOKUP, ACTION_UNREGISTER,
@@ -10,6 +11,7 @@ from src.common.protocol import (
     send_json, recv_json
 )
 
+logger = get_logger("P2P-IsoDistrib.Peer")
 _tracker_io_lock = threading.Lock()
 
 
@@ -21,7 +23,7 @@ def connect_to_tracker():
         return tracker_sock
     except (ConnectionRefusedError, OSError):
         tracker_sock.close()
-        print(f"[Error] Cannot connect to tracker at {TRACKER_HOST}:{TRACKER_PORT}")
+        logger.error("[Peer] Cannot connect to tracker at %s:%s", TRACKER_HOST, TRACKER_PORT)
         return None
 
 
@@ -58,11 +60,11 @@ def send_register(tracker_sock, port, filepath):
     Retorna True se registrado com sucesso, False caso contrário.
     """
     if not filepath or not os.path.exists(filepath):
-        print(f"[Error] File not found: {filepath}")
+        logger.error("[Peer] File not found: %s", filepath)
         return False
 
     if not filepath.lower().endswith(".iso"):
-        print("[Error] Only .iso files are supported")
+        logger.error("[Peer] Only .iso files are supported")
         return False
 
     filename = os.path.basename(filepath)
@@ -79,11 +81,11 @@ def send_register(tracker_sock, port, filepath):
 
     response = _send_tracker_message(tracker_sock, message)
     if response and response.get("status") == "OK":
-        print(f"[Published] {filename} registered on tracker")
+        logger.info("[Peer] [Published] %s registered on tracker", filename)
         return True
 
     error_message = response.get("message", "Tracker did not respond") if response else "Tracker did not respond"
-    print(f"[Error] {error_message}")
+    logger.error("[Peer] %s", error_message)
     return False
 
 
@@ -125,11 +127,11 @@ def send_lookup(tracker_sock, filename=None, sha256=None):
         return response
 
     if response and response.get("status") == "NOT_FOUND":
-        print(response.get("message", f"No peers have '{query}'"))
+        logger.info("[Peer] %s", response.get("message", f"No peers have '{query}'"))
     elif response and response.get("status") == "ERROR":
-        print(f"[Error] {response.get('message', 'Lookup failed')}")
+        logger.error("[Peer] %s", response.get("message", "Lookup failed"))
     else:
-        print("[Error] Tracker did not respond")
+        logger.error("[Peer] Tracker did not respond")
 
     return None
 
