@@ -162,7 +162,7 @@ def print_help():
     print("  exit")
 
 
-def shutdown(tracker_sock, peer_port):
+def shutdown(tracker_sock, peer_port, upload_server_sock=None):
     """Finaliza graciosamente o peer."""
     shutdown_event.set()
     if tracker_sock is not None and not offline_mode:
@@ -175,16 +175,21 @@ def shutdown(tracker_sock, peer_port):
         except OSError:
             pass
 
+        if upload_server_sock:
+            try:
+                upload_server_sock.close()
+            except OSError:
+                pass
     print("[Peer] Shutting down...")
 
 
-def run_cli(tracker_sock, peer_port):
+def run_cli(tracker_sock, peer_port, upload_server_sock=None):
     """Loop principal da CLI."""
     while True:
         try:
             raw_command = input("peer> ").strip()
         except EOFError:
-            shutdown(tracker_sock, peer_port)
+            shutdown(tracker_sock, peer_port, upload_server_sock)
             return
 
         if not raw_command:
@@ -312,7 +317,7 @@ def main():
     os.makedirs(SHARED_FOLDER, exist_ok=True)
     os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
-    start_upload_server(peer_port)
+    upload_server_sock = start_upload_server(peer_port)
     print(f"[Peer] Started on {peer_ip}:{peer_port}")
 
     tracker_sock = connect_to_tracker()
@@ -320,6 +325,8 @@ def main():
         choice = input("[Peer] Continue offline? [y/N] ").strip().lower()
         if choice not in {"y", "yes"}:
             print("[Peer] Shutting down...")
+            if upload_server_sock:
+                upload_server_sock.close()
             return 1
         offline_mode = True
 
@@ -332,10 +339,10 @@ def main():
     heartbeat_thread.start()
 
     try:
-        run_cli(tracker_sock, peer_port)
+        run_cli(tracker_sock, peer_port, upload_server_sock)
     except KeyboardInterrupt:
         print()
-        shutdown(tracker_sock, peer_port)
+        shutdown(tracker_sock, peer_port, upload_server_sock)
         return 0
 
     return 0

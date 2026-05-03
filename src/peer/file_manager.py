@@ -111,7 +111,10 @@ def _recv_data(sock, data_len):
     """Receive exactly data_len bytes, returning None on connection failure."""
     data = bytearray()
     while len(data) < data_len:
-        received = sock.recv(min(BUFFER_SIZE, data_len - len(data)))
+        try:
+            received = sock.recv(min(BUFFER_SIZE, data_len - len(data)))
+        except socket.timeout:
+            return None
         if not received:
             return None
         data.extend(received)
