@@ -12,7 +12,11 @@ from src.common.protocol import (
     PEER_BASE_PORT,
     SHARED_FOLDER,
 )
-from src.peer.file_manager import download_file_parallel, start_upload_server
+from src.peer.file_manager import (
+    download_file_parallel,
+    register_published_file,
+    start_upload_server,
+)
 from src.peer.network import (
     calculate_sha256,
     connect_to_tracker,
@@ -185,6 +189,7 @@ class PeerSession:
             return False
         ok = bool(self.register_func(self.tracker_sock, self.port, filepath))
         if ok:
+            register_published_file(filepath)
             self.emit("published", f"Published {os.path.basename(filepath)}", filepath)
         else:
             self.emit("error", f"Failed to publish {filepath}")
@@ -237,6 +242,7 @@ class PeerSession:
         if path:
             self.emit("download_complete", f"Download saved to {path}", path)
             self.register_func(self.tracker_sock, self.port, path)
+            register_published_file(path)
             return path
 
         self.emit("error", f"Failed to download {file_info.get('name', query)}")

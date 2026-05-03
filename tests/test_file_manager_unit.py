@@ -12,7 +12,13 @@ import time
 import pytest
 
 import src.peer.file_manager as fm
-from src.peer.file_manager import _recv_data, format_size, handle_upload_request
+from src.peer.file_manager import (
+    _recv_data,
+    download_single_chunk,
+    format_size,
+    handle_upload_request,
+    register_published_file,
+)
 from src.common.protocol import CHUNK_SIZE, recv_json, send_json, recv_chunk_header
 
 
@@ -221,6 +227,97 @@ def test_upload_file_not_found_returns_error_json(tmp_path, monkeypatch):
         t.join(timeout=2)
     finally:
         requester.close()
+
+
+def test_upload_serves_registered_external_file(tmp_path, monkeypatch):
+    shared = tmp_path / "shared"
+    downloads = tmp_path / "downloads"
+    external = tmp_path / "external"
+    shared.mkdir()
+    downloads.mkdir()
+    external.mkdir()
+    monkeypatch.setattr(fm, "SHARED_FOLDER", str(shared))
+    monkeypatch.setattr(fm, "DOWNLOAD_FOLDER", str(downloads))
+
+    content = b"external iso content"
+    filepath = external / "external.iso"
+    filepath.write_bytes(content)
+    register_published_file(str(filepath))
+
+    requester, handler_end = socket.socketpair()
+    try:
+        t = _start_handler(handler_end)
+        send_json(requester, {"action": "GET_CHUNK", "filename": "external.iso", "chunk_index": 0})
+
+        header = recv_chunk_header(requester)
+        assert header is not None
+        chunk_idx, total_chunks, data_len = header
+        assert chunk_idx == 0
+        assert total_chunks == 1
+        assert data_len == len(content)
+
+        received = _recv_data(requester, data_len)
+        assert received == content
+        t.join(timeout=2)
+    finally:
+        requester.close()
+
+
+def test_download_single_chunk_reports_peer_json_error(tmp_path, monkeypatch):
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    monkeypatch.setattr(fm, "DOWNLOAD_FOLDER", str(downloads))
+
+    server_sock, client_sock = socket.socketpair()
+    try:
+        class FakeSocket:
+            def __init__(self, wrapped):
+                self.wrapped = wrapped
+
+            def settimeout(self, timeout):
+                self.wrapped.settimeout(timeout)
+
+            def gettimeout(self):
+                return self.wrapped.gettimeout()
+
+            def connect(self, _address):
+                return None
+
+            def sendall(self, data):
+                self.wrapped.sendall(data)
+
+            def recv(self, size, *flags):
+                return self.wrapped.recv(size, *flags)
+
+            def fileno(self):
+                return self.wrapped.fileno()
+
+            def close(self):
+                self.wrapped.close()
+
+        def fake_socket(*_args, **_kwargs):
+            return FakeSocket(client_sock)
+
+        def send_error():
+            recv_json(server_sock)
+            send_json(server_sock, {"status": "ERROR", "message": "File not found"})
+
+        thread = threading.Thread(target=send_error, daemon=True)
+        thread.start()
+        monkeypatch.setattr(fm.socket, "socket", fake_socket)
+
+        chunks_status = [None]
+        ok = download_single_chunk(
+            [{"ip": "127.0.0.1", "port": 6000}],
+            "missing.iso", 0, 1,
+            chunks_status, threading.Lock(), {}, threading.Lock(), [0], threading.Lock(),
+        )
+
+        assert ok is False
+        assert chunks_status == [None]
+        thread.join(timeout=2)
+    finally:
+        server_sock.close()
 
 
 def test_upload_invalid_action_closes_without_sending(tmp_path, monkeypatch):

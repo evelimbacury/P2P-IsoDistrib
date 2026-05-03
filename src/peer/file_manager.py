@@ -14,6 +14,8 @@ from src.common.protocol import (
 
 logger = get_logger("P2P-IsoDistrib.Peer")
 MAX_CONCURRENT_DOWNLOADS = 4
+_published_file_paths = {}
+_published_file_paths_lock = threading.Lock()
 
 
 def format_size(size_bytes):
@@ -56,6 +58,31 @@ def _emit_progress(
         "speed_bytes_per_second": speed_bytes_per_second,
         "status": status,
     })
+
+
+def register_published_file(filepath):
+    """Make a published file available to the upload server by basename."""
+    if not filepath:
+        return
+    absolute_path = os.path.abspath(filepath)
+    if not os.path.isfile(absolute_path):
+        return
+    with _published_file_paths_lock:
+        _published_file_paths[os.path.basename(absolute_path)] = absolute_path
+
+
+def _find_served_file(filename):
+    with _published_file_paths_lock:
+        registered_path = _published_file_paths.get(filename)
+    if registered_path and os.path.isfile(registered_path):
+        return registered_path
+
+    for folder in (SHARED_FOLDER, DOWNLOAD_FOLDER):
+        filepath = os.path.join(folder, filename)
+        if os.path.isfile(filepath):
+            return filepath
+
+    return None
 
 
 def start_upload_server(peer_port, on_log=None):
@@ -101,11 +128,9 @@ def handle_upload_request(client_sock, address, on_log=None):
 
         filename = request.get("filename", "")
         chunk_index = request.get("chunk_index", 0)
-        filepath = os.path.join(SHARED_FOLDER, filename)
+        filepath = _find_served_file(filename)
 
-        if not os.path.isfile(filepath):
-            filepath = os.path.join(DOWNLOAD_FOLDER, filename)
-        if not os.path.isfile(filepath):
+        if filepath is None:
             send_json(client_sock, {"status": "ERROR", "message": "File not found"})
             return
 
@@ -147,6 +172,22 @@ def _recv_data(sock, data_len):
     return bytes(data)
 
 
+def _raise_peer_json_error_if_present(sock):
+    try:
+        first_byte = sock.recv(1, socket.MSG_PEEK)
+    except (AttributeError, OSError):
+        return
+
+    if first_byte != b"{":
+        return
+
+    response = recv_json(sock)
+    if isinstance(response, dict):
+        message = response.get("message", "Peer returned an error response")
+        raise ConnectionError(message)
+    raise ConnectionError("Peer returned an invalid error response")
+
+
 def download_single_chunk(
     peers_with_chunk, filename, chunk_index, total_chunks,
     chunks_status, chunks_lock,
@@ -175,11 +216,23 @@ def download_single_chunk(
                     "chunk_index": chunk_index,
                 })
 
+                _raise_peer_json_error_if_present(sock)
                 header = recv_chunk_header(sock)
                 if header is None:
                     raise ConnectionError("No chunk header received")
 
-                _, _, data_len = header
+                response_chunk_index, response_total_chunks, data_len = header
+                if response_chunk_index != chunk_index:
+                    raise ConnectionError(
+                        f"Unexpected chunk index: got {response_chunk_index}, expected {chunk_index}"
+                    )
+                if response_total_chunks != total_chunks:
+                    raise ConnectionError(
+                        f"Unexpected total chunks: got {response_total_chunks}, expected {total_chunks}"
+                    )
+                if data_len < 0 or data_len > CHUNK_SIZE:
+                    raise ConnectionError(f"Invalid chunk length: {data_len}")
+
                 data = _recv_data(sock, data_len)
                 if data is None or len(data) != data_len:
                     got = len(data) if data else 0
