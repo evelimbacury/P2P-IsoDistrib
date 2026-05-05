@@ -182,28 +182,49 @@ que a GUI atualize barras de progresso e logs sem capturar `print()`.
 
 ## O que foi implementado
 
-### Transferência P2P de Chunks (`src/peer/file_manager.py`)
+### Tracker (`src/tracker/tracker.py`)
 
-**Servidor de upload** — cada peer serve seus chunks para outros peers:
-- `start_upload_server(port)` — sobe servidor TCP na porta do peer ao iniciar
-- `handle_upload_request` — recebe `GET_CHUNK`, faz `seek()` no offset correto e responde com cabeçalho binário + dados; busca o arquivo em `shared_files/` e, como fallback, em `downloads/` (peer que baixou também vira semeador)
+- Ações suportadas: `REGISTER`, `HEARTBEAT`, `LOOKUP`, `UNREGISTER` e `UPDATE_CHUNKS`.
+- Armazena peers ativos, arquivos publicados, tamanho, SHA256 e chunks disponíveis.
+- Usa o IP real da conexão para registrar o peer e evitar spoofing.
+- Remove automaticamente peers que não enviam heartbeat por mais de 60 segundos.
+- Console de administração com comandos `list` e `exit`.
 
-**Download paralelo** — baixa de múltiplos peers ao mesmo tempo:
-- `download_file_parallel(file_info, peers_list)` — divide o arquivo em chunks de 1 MB, escala até **4 threads simultâneas**, distribui chunks pelos peers priorizando os menos carregados, exibe barra de progresso em tempo real, remonta o arquivo final e verifica SHA256; em caso de mismatch o arquivo corrompido é deletado automaticamente
-- `download_single_chunk` — baixa um chunk com **retry automático** em até 3 peers diferentes em caso de falha, incluindo quedas no meio da transferência
+### Peer / CLI (`src/peer/client.py` e `src/app/peer_session.py`)
 
-**Fluxo completo de um download:**
-```
-peer> download ubuntu.iso
-[Download] Starting download of ubuntu.iso (4.98 GB, 4750 chunks) from 2 peers
-[Download] ubuntu.iso: [########--------]  52% (2470/4750) - 2 peers active - 12.5 MB/s
-[Download] Assembling ubuntu.iso...
-[Download] Verifying SHA256...
-[Success] File verified! ubuntu.iso is intact.
-[Download] Saved to downloads\ubuntu.iso
-```
+- `publish <arquivo.iso>`: calcula SHA256, registra no tracker e torna o arquivo disponível para upload.
+- `search <palavra|sha256:hash>`: busca por nome ou hash exato.
+- `download <nome>`: baixa o arquivo em paralelo de múltiplos peers, monta o resultado e verifica o hash SHA256.
+- `list_local`: lista arquivos `.iso` em `shared_files/` com nome, tamanho e hash.
+- `help`: mostra comandos disponíveis.
+- `exit`: encerra o peer e remove o registro do tracker.
+- `PeerSession` organiza a sessão comum entre CLI e GUI, incluindo servidor de upload, conexão com tracker, heartbeat, publicação, busca, download e parada.
 
-Após o download, o peer se registra automaticamente no Tracker como semeador do arquivo recém-baixado.
+### Transferência de chunks (`src/peer/file_manager.py`)
+
+- Upload server TCP responde `GET_CHUNK` com JSON de requisição seguido de cabeçalho binário `!IIQ` e dados do chunk.
+- Localiza arquivos primeiramente em `shared_files/`; como fallback, também aceita arquivos em `downloads/`.
+- Download paralelo em chunks de 1 MiB com até 4 downloads concorrentes.
+- Seleção de peers baseada na carga atual, com retry em até 3 peers diferentes por chunk.
+- Progresso é emitido para terminal ou para a GUI via callbacks.
+- Os chunks são montados em `downloads/`, o hash SHA256 é verificado e o arquivo é removido em caso de mismatch.
+- Após download bem sucedido, o peer se registra automaticamente como seeder do novo arquivo.
+
+### Protocolo e robustez (`src/common/protocol.py`)
+
+- Comunicação JSON fim de linha entre peer e tracker.
+- Transferência de chunk com cabeçalho binário e recepção de tamanho exato.
+- Heartbeat a cada 30 segundos para manter o peer ativo no tracker.
+- Limites de tamanho de JSON e timeouts para evitar falhas silenciosas.
+
+### Demonstração e testes
+
+- `demo.bat` automatiza tracker e peers de teste com publicação e download paralelo.
+- `scripts/create_test_iso.py`: gera `shared_files/test.iso` de 500 MB para validação.
+- `scripts/demo_peer.py`: wrapper para execução automática de peers no demo.
+- `scripts/demo_progress.py`: demonstra a barra de progresso em loop local.
+- `scripts/verify.py`: verifica SHA256 entre `shared_files/test.iso` e `downloads/test.iso`.
+- Testes automatizados em `tests/` cobrem tracker, protocolo, gerenciamento de arquivos e download paralelo.
 
 ---
 

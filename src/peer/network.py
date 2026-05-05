@@ -17,13 +17,16 @@ _tracker_io_lock = threading.Lock()
 
 def connect_to_tracker():
     """Cria e retorna um socket conectado ao tracker."""
+    host = os.environ.get('TRACKER_HOST', TRACKER_HOST)
+    port = int(os.environ.get('TRACKER_PORT', TRACKER_PORT))
+
     tracker_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        tracker_sock.connect((TRACKER_HOST, TRACKER_PORT))
+        tracker_sock.connect((host, port))
         return tracker_sock
     except (ConnectionRefusedError, OSError):
         tracker_sock.close()
-        logger.error("[Peer] Cannot connect to tracker at %s:%s", TRACKER_HOST, TRACKER_PORT)
+        logger.error("[Peer] Cannot connect to tracker at %s:%s", host, port)
         return None
 
 
@@ -45,10 +48,13 @@ def _send_tracker_message(tracker_sock, message, timeout=10):
     if tracker_sock is None:
         return None
 
+    host = os.environ.get('TRACKER_HOST', TRACKER_HOST)
+    port = int(os.environ.get('TRACKER_PORT', TRACKER_PORT))
+
     with _tracker_io_lock:
         request_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            request_sock.connect((TRACKER_HOST, TRACKER_PORT))
+            request_sock.connect((host, port))
             if not send_json(request_sock, message):
                 return None
             return recv_json(request_sock, timeout=timeout)

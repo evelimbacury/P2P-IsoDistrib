@@ -1,0 +1,94 @@
+version: '3.8'
+
+networks:
+  p2p_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.0.0.0/24
+
+services:
+  tracker:
+    build:
+      context: .
+      dockerfile: Dockerfile.tracker
+    container_name: p2p_tracker
+    hostname: tracker
+    networks:
+      p2p_network:
+        ipv4_address: 10.0.0.2
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./shared_files/tracker:/app/shared_files
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "5000"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  peer1:
+    build:
+      context: .
+      dockerfile: Dockerfile.peer
+    container_name: p2p_peer1
+    hostname: peer1
+    networks:
+      p2p_network:
+        ipv4_address: 10.0.0.10
+    ports:
+      - "6000:6000"
+    environment:
+      - TRACKER_HOST=10.0.0.2
+      - PEER_ID=1
+      - PEER_PORT=6000
+    volumes:
+      - ./shared_files/peer1:/app/shared_files
+    depends_on:
+      tracker:
+        condition: service_healthy
+    stdin_open: true
+
+  peer2:
+    build:
+      context: .
+      dockerfile: Dockerfile.peer
+    container_name: p2p_peer2
+    hostname: peer2
+    networks:
+      p2p_network:
+        ipv4_address: 10.0.0.20
+    ports:
+      - "6001:6001"
+    environment:
+      - TRACKER_HOST=10.0.0.2
+      - PEER_ID=2
+      - PEER_PORT=6001
+    volumes:
+      - ./shared_files/peer2:/app/shared_files
+    depends_on:
+      tracker:
+        condition: service_healthy
+    stdin_open: true
+
+  peer3:
+    build:
+      context: .
+      dockerfile: Dockerfile.peer
+    container_name: p2p_peer3
+    hostname: peer3
+    networks:
+      p2p_network:
+        ipv4_address: 10.0.0.30
+    ports:
+      - "6002:6002"
+    environment:
+      - TRACKER_HOST=10.0.0.2
+      - PEER_ID=3
+      - PEER_PORT=6002
+    volumes:
+      - ./shared_files/peer3:/app/shared_files
+    depends_on:
+      tracker:
+        condition: service_healthy
+    stdin_open: true

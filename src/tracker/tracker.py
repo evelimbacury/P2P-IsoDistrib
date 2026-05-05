@@ -15,6 +15,7 @@ import time
 
 from src.common.logging_config import get_logger, setup_logging
 from src.common.protocol import (
+    HEARTBEAT_INTERVAL,
     TRACKER_BIND_HOST,
     TRACKER_PORT,
     CHUNK_SIZE,
@@ -420,11 +421,11 @@ def handle_client(client_socket, addr):
     Processa múltiplas mensagens até a conexão ser fechada.
     """
     peer_addr_str = f"{addr[0]}:{addr[1]}"
-    logger.info(f"[Tracker] New connection from {peer_addr_str}")
+    logger.debug(f"[Tracker] New connection from {peer_addr_str}")
 
     try:
         while not stop_event.is_set():
-            data = recv_json(client_socket)
+            data = recv_json(client_socket, timeout=HEARTBEAT_INTERVAL + 30)
             if data is None:
                 break
 
@@ -478,7 +479,7 @@ def handle_client(client_socket, addr):
             client_socket.close()
         except Exception:
             pass
-        logger.info(f"[Tracker] Connection closed with {peer_addr_str}")
+        logger.debug(f"[Tracker] Connection closed with {peer_addr_str}")
 
 
 # ==============================================================================

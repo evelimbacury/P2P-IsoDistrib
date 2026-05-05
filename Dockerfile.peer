@@ -1,0 +1,21 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Instala netcat para o entrypoint aguardar o tracker
+RUN apt-get update && apt-get install -y --no-install-recommends netcat-openbsd && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY src/ /app/src/
+COPY requirements.txt /app/
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+RUN mkdir -p /app/shared_files /app/downloads
+
+COPY entrypoint.peer.sh /app/
+RUN chmod +x /app/entrypoint.peer.sh
+
+EXPOSE 6000 6001 6002 6003
+
+ENTRYPOINT ["/app/entrypoint.peer.sh"]
