@@ -5,7 +5,7 @@ import threading
 from typing import Any, Callable, Optional
 
 from src.app.events import AppEvent, EventHandler
-from src.app.models import DownloadProgress, LocalFile, SearchResult
+from src.app.models import DownloadProgress, LocalFile, NetworkSnapshot, SearchResult
 from src.common.protocol import (
     DOWNLOAD_FOLDER,
     HEARTBEAT_INTERVAL,
@@ -21,6 +21,7 @@ from src.peer.network import (
     calculate_sha256,
     connect_to_tracker,
     send_heartbeat,
+    send_list_peers,
     send_lookup,
     send_register,
     send_unregister,
@@ -35,11 +36,14 @@ class PeerSession:
         port: int = PEER_BASE_PORT,
         tracker_sock: Optional[socket.socket] = None,
         upload_server_sock: Optional[socket.socket] = None,
+        shared_folder: str = SHARED_FOLDER,
+        download_folder: str = DOWNLOAD_FOLDER,
         on_event: Optional[EventHandler] = None,
         connect_func: Callable[[], Optional[socket.socket]] = connect_to_tracker,
         register_func: Callable[..., bool] = send_register,
         heartbeat_func: Callable[..., bool] = send_heartbeat,
         lookup_func: Callable[..., Optional[dict[str, Any]]] = send_lookup,
+        list_peers_func: Callable[..., Optional[dict[str, Any]]] = send_list_peers,
         unregister_func: Callable[..., bool] = send_unregister,
         download_func: Callable[..., Optional[str]] = download_file_parallel,
         upload_server_func: Callable[..., socket.socket] = start_upload_server,
@@ -48,15 +52,19 @@ class PeerSession:
         self.port = port
         self.tracker_sock = tracker_sock
         self.upload_server_sock = upload_server_sock
+        self.shared_folder = shared_folder
+        self.download_folder = download_folder
         self.offline_mode = tracker_sock is None
         self.shutdown_event = threading.Event()
         self.heartbeat_thread: Optional[threading.Thread] = None
         self._listeners: list[EventHandler] = []
+        self._published_paths: set[str] = set()
 
         self.connect_func = connect_func
         self.register_func = register_func
         self.heartbeat_func = heartbeat_func
         self.lookup_func = lookup_func
+        self.list_peers_func = list_peers_func
         self.unregister_func = unregister_func
         self.download_func = download_func
         self.upload_server_func = upload_server_func
@@ -85,8 +93,8 @@ class PeerSession:
                 pass
 
     def start(self, allow_offline: bool = False) -> bool:
-        os.makedirs(SHARED_FOLDER, exist_ok=True)
-        os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+        os.makedirs(self.shared_folder, exist_ok=True)
+        os.makedirs(self.download_folder, exist_ok=True)
 
         if self.upload_server_sock is None:
             try:
@@ -189,6 +197,7 @@ class PeerSession:
             return False
         ok = bool(self.register_func(self.tracker_sock, self.port, filepath))
         if ok:
+            self._published_paths.add(os.path.abspath(filepath))
             register_published_file(filepath)
             self.emit("published", f"Published {os.path.basename(filepath)}", filepath)
         else:
@@ -240,6 +249,7 @@ class PeerSession:
 
         path = self._call_download(file_info, peers)
         if path:
+            self._published_paths.add(os.path.abspath(path))
             self.emit("download_complete", f"Download saved to {path}", path)
             self.register_func(self.tracker_sock, self.port, path)
             register_published_file(path)
@@ -249,17 +259,53 @@ class PeerSession:
         return None
 
     def list_local_files(self) -> list[LocalFile]:
-        return self.scan_local_files(self.sha256_func)
+        files = self.scan_local_files(self.shared_folder, self.sha256_func)
+        known_paths = {os.path.abspath(local_file.path) for local_file in files}
+        for filepath in sorted(self._published_paths):
+            if filepath in known_paths or not os.path.isfile(filepath):
+                continue
+            if not filepath.lower().endswith(".iso"):
+                continue
+            files.append(
+                LocalFile(
+                    name=os.path.basename(filepath),
+                    path=filepath,
+                    size=os.path.getsize(filepath),
+                    sha256=self.sha256_func(filepath),
+                )
+            )
+        files.sort(key=lambda item: item.name.lower())
+        self.emit("local_files", f"{len(files)} local file(s)", files)
+        return files
+
+    def list_network_peers(self) -> Optional[NetworkSnapshot]:
+        if self.tracker_sock is None or self.offline_mode:
+            self.emit("error", "Cannot list peers: not connected to tracker")
+            return None
+
+        response = self.list_peers_func(self.tracker_sock)
+        if not response:
+            self.emit("warning", "Tracker did not return the peer list")
+            return None
+
+        snapshot = NetworkSnapshot.from_tracker_response(response)
+        self.emit("network_peers", f"{snapshot.peer_count} peer(s) connected", snapshot)
+        return snapshot
 
     @staticmethod
     def scan_local_files(
+        shared_folder: str = SHARED_FOLDER,
         sha256_func: Callable[[str], str] = calculate_sha256,
     ) -> list[LocalFile]:
-        os.makedirs(SHARED_FOLDER, exist_ok=True)
+        if callable(shared_folder):
+            sha256_func = shared_folder
+            shared_folder = SHARED_FOLDER
+
+        os.makedirs(shared_folder, exist_ok=True)
         files: list[LocalFile] = []
 
-        for filename in sorted(os.listdir(SHARED_FOLDER)):
-            filepath = os.path.join(SHARED_FOLDER, filename)
+        for filename in sorted(os.listdir(shared_folder)):
+            filepath = os.path.join(shared_folder, filename)
             if not filename.lower().endswith(".iso") or not os.path.isfile(filepath):
                 continue
             files.append(
@@ -281,13 +327,18 @@ class PeerSession:
         kwargs = {
             "on_progress": self._on_download_progress,
             "on_log": self._on_download_log,
+            "download_folder": self.download_folder,
         }
         if self._callable_accepts_kwargs(self.download_func, kwargs):
             return self.download_func(file_info, peers, **kwargs)
         return self.download_func(file_info, peers)
 
     def _call_upload_server(self) -> socket.socket:
-        kwargs = {"on_log": self._on_download_log}
+        kwargs = {
+            "on_log": self._on_download_log,
+            "shared_folder": self.shared_folder,
+            "download_folder": self.download_folder,
+        }
         if self._callable_accepts_kwargs(self.upload_server_func, kwargs):
             return self.upload_server_func(self.port, **kwargs)
         return self.upload_server_func(self.port)

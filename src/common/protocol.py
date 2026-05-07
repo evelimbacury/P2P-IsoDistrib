@@ -207,6 +207,7 @@ ACTION_HEARTBEAT = "HEARTBEAT"
 ACTION_LOOKUP = "LOOKUP"
 ACTION_UNREGISTER = "UNREGISTER"
 ACTION_UPDATE_CHUNKS = "UPDATE_CHUNKS"
+ACTION_LIST_PEERS = "LIST_PEERS"
 
 # ==============================================================================
 # AÇÕES PEER-TO-PEER

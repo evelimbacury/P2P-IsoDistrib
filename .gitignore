@@ -27,6 +27,8 @@ build/
 *.swo
 *~
 .DS_Store
+node_modules/
+desktop-dist/
 
 # ==============================================================================
 # ARQUIVOS DO PROJETO (IMPORTANTE!)

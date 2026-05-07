@@ -104,6 +104,46 @@ Após iniciar o `client.py`, o usuário tem acesso aos seguintes comandos:
 | `list_local` | Lista os arquivos `.iso` disponíveis em `shared_files/` |
 | `exit` | Remove o peer do Tracker e encerra o programa |
 
+## Interface Gráfica
+
+O projeto agora tem dois caminhos de interface:
+
+- **Tkinter**: interface legada em Python, útil para compatibilidade rápida.
+- **Electron Desktop**: nova interface moderna, com backend Python local e visual mais próximo de aplicativo desktop atual.
+
+### Interface Desktop (Electron)
+
+A nova interface Electron conversa com uma API local em Python (`src.desktop_api.server`)
+e permite configurar o tracker por IP/porta, o que facilita testes em grupo dentro da mesma rede.
+
+Arquivos principais:
+
+- `electron/main.js`: janela Electron + bootstrap da API local
+- `electron/index.html`: interface desktop
+- `electron/renderer.js`: lógica de UX e integração com a API local
+- `src/desktop_api/server.py`: backend HTTP local que controla o `PeerSession`
+
+Para instalar a shell desktop:
+
+```bash
+npm install
+```
+
+Para validar os arquivos JavaScript sem abrir a aplicação:
+
+```bash
+npm run desktop:check
+```
+
+Para iniciar a interface Electron:
+
+```bash
+npm run desktop
+```
+
+> Observação: o Electron depende de `npm install` porque a dependência `electron`
+> não faz parte do repositório.
+
 ## Interface Gráfica (Tkinter)
 
 Além da CLI, o peer também pode ser usado por uma interface gráfica feita com
@@ -274,6 +314,12 @@ python -m venv .venv
 .venv/bin/python -m src.tracker.tracker
 ```
 
+Para expor o tracker para outros colegas na mesma LAN, use:
+
+```bash
+TRACKER_BIND_HOST=0.0.0.0 TRACKER_PORT=5000 .venv/bin/python -m src.tracker.tracker
+```
+
 **Terminal 2 — Peer (porta 6000):**
 ```bash
 .venv/bin/python -m src.peer.client --port 6000
@@ -283,6 +329,28 @@ python -m venv .venv
 ```bash
 .venv/bin/python -m src.peer.client --port 6001
 ```
+
+Ou apontando para um tracker remoto explicitamente:
+
+```bash
+.venv/bin/python -m src.peer.client --port 6001 --tracker-host 192.168.1.50 --tracker-port 5000
+```
+
+## Teste em Grupo na LAN
+
+Se os integrantes estiverem na mesma rede local, o fluxo recomendado é:
+
+1. Um integrante sobe o tracker na própria máquina.
+2. Esse integrante descobre o IP local da máquina, por exemplo `192.168.1.50`.
+3. Os demais iniciam o peer ou a interface Electron apontando para esse IP.
+4. Todos publicam ou baixam usando esse mesmo tracker.
+
+Checklist prático:
+
+- O tracker deve estar rodando com bind em `0.0.0.0` ou no IP da interface de rede.
+- A porta `5000` do tracker deve estar liberada no firewall.
+- As portas dos peers também precisam estar acessíveis para a troca de chunks.
+- Esse fluxo é ideal para **LAN**. Pela internet pública a configuração fica mais complexa por causa de NAT e roteador.
 
 ---
 

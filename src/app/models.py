@@ -56,6 +56,49 @@ class PeerInfo:
 
 
 @dataclass(frozen=True)
+class NetworkPeer:
+    ip: str
+    port: int
+    files: list[str]
+    file_count: int
+    last_heartbeat_age_seconds: float
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "NetworkPeer":
+        files = [str(name) for name in data.get("files", [])]
+        file_count = data.get("file_count")
+        return cls(
+            ip=str(data.get("ip", "")),
+            port=int(data.get("port", 0)),
+            files=files,
+            file_count=int(file_count if file_count is not None else len(files)),
+            last_heartbeat_age_seconds=float(data.get("last_heartbeat_age_seconds", 0.0)),
+        )
+
+
+@dataclass(frozen=True)
+class NetworkSnapshot:
+    peers: list[NetworkPeer]
+
+    @property
+    def peer_count(self) -> int:
+        return len(self.peers)
+
+    @property
+    def published_file_count(self) -> int:
+        return sum(peer.file_count for peer in self.peers)
+
+    @classmethod
+    def from_tracker_response(cls, response: dict[str, Any]) -> "NetworkSnapshot":
+        return cls(
+            peers=[
+                NetworkPeer.from_dict(peer)
+                for peer in response.get("peers", [])
+            ]
+        )
+
+
+@dataclass(frozen=True)
 class SearchResult:
     file_info: FileInfo
     peers: list[PeerInfo]

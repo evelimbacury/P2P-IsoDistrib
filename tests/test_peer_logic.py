@@ -6,6 +6,7 @@ from src.peer.network import (
     connect_to_tracker,
     send_register,
     send_heartbeat,
+    send_list_peers,
     send_lookup,
     send_unregister,
     send_update_chunks
@@ -83,6 +84,12 @@ def test_network_full_flow(tracker_server):
         assert send_update_chunks(sock, peer_port, "test_logic.iso", [0, 1, 2]) is True
         res_updated = send_lookup(sock, filename="test_logic")
         assert res_updated["peers"][0]["chunks_available"] == [0, 1, 2]
+
+        peers_snapshot = send_list_peers(sock)
+        assert peers_snapshot is not None
+        assert peers_snapshot["peer_count"] == 1
+        assert peers_snapshot["peers"][0]["port"] == peer_port
+        assert peers_snapshot["peers"][0]["files"] == ["test_logic.iso"]
 
         assert send_unregister(sock, peer_port) is True
         res_after = send_lookup(sock, filename="test_logic")

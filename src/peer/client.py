@@ -1,5 +1,7 @@
 import argparse
+from functools import partial
 import os
+import shlex
 import sys
 import threading
 import time
@@ -18,6 +20,7 @@ from src.app.peer_session import PeerSession
 from src.peer.network import (
     calculate_sha256,
     connect_to_tracker,
+    resolve_tracker_address,
     send_heartbeat,
     send_lookup,
     send_register,
@@ -181,16 +184,17 @@ def shutdown(tracker_sock, peer_port, upload_server_sock=None):
     print("[Peer] Shutting down...")
 
 
-def build_cli_session(tracker_sock, peer_port, upload_server_sock=None):
+def build_cli_session(tracker_sock, peer_port, upload_server_sock=None, tracker_host=None, tracker_port=None):
     """Cria uma PeerSession usando as operações atuais do módulo da CLI."""
     return PeerSession(
         port=peer_port,
         tracker_sock=tracker_sock,
         upload_server_sock=upload_server_sock,
-        register_func=send_register,
-        heartbeat_func=send_heartbeat,
-        lookup_func=send_lookup,
-        unregister_func=send_unregister,
+        connect_func=partial(connect_to_tracker, tracker_host=tracker_host, tracker_port=tracker_port),
+        register_func=partial(send_register, tracker_host=tracker_host, tracker_port=tracker_port),
+        heartbeat_func=partial(send_heartbeat, tracker_host=tracker_host, tracker_port=tracker_port),
+        lookup_func=partial(send_lookup, tracker_host=tracker_host, tracker_port=tracker_port),
+        unregister_func=partial(send_unregister, tracker_host=tracker_host, tracker_port=tracker_port),
         download_func=download_file_parallel,
         upload_server_func=start_upload_server,
         sha256_func=calculate_sha256,
@@ -213,9 +217,9 @@ def run_cli(tracker_sock, peer_port, upload_server_sock=None, session=None):
         if not raw_command:
             continue
 
-        parts = raw_command.split()
+        parts = shlex.split(raw_command, posix=False)
         command = parts[0].lower()
-        args = parts[1:]
+        args = [arg.strip('"') for arg in parts[1:]]
 
         try:
             if command == "publish":
@@ -318,6 +322,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description="P2P-IsoDistrib peer client")
     parser.add_argument("--port", type=validate_port, default=PEER_BASE_PORT,
                         help="Peer listening port (1-65535)")
+    parser.add_argument("--tracker-host", default=None,
+                        help="Tracker host/IP (default: TRACKER_HOST env or protocol default)")
+    parser.add_argument("--tracker-port", type=validate_port, default=None,
+                        help="Tracker port (default: TRACKER_PORT env or protocol default)")
     return parser.parse_args()
 
 
@@ -330,14 +338,21 @@ def main():
     peer_ip = "127.0.0.1"
     args = parse_args()
     peer_port = args.port
+    tracker_host, tracker_port = resolve_tracker_address(args.tracker_host, args.tracker_port)
 
     os.makedirs(SHARED_FOLDER, exist_ok=True)
     os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
-    session = PeerSession(port=peer_port)
+    session = build_cli_session(
+        tracker_sock=None,
+        peer_port=peer_port,
+        tracker_host=tracker_host,
+        tracker_port=tracker_port,
+    )
     started = session.start(allow_offline=False)
     logger.info("[Peer] Started on %s:%s", peer_ip, peer_port)
     print(f"[Peer] Started on {peer_ip}:{peer_port}")
+    print(f"[Peer] Tracker target: {tracker_host}:{tracker_port}")
 
     if not started:
         choice = input("[Peer] Continue offline? [y/N] ").strip().lower()
@@ -346,7 +361,12 @@ def main():
             print("[Peer] Shutting down...")
             session.stop(unregister=False)
             return 1
-        session = PeerSession(port=peer_port)
+        session = build_cli_session(
+            tracker_sock=None,
+            peer_port=peer_port,
+            tracker_host=tracker_host,
+            tracker_port=tracker_port,
+        )
         session.start(allow_offline=True)
         offline_mode = True
 

@@ -88,6 +88,30 @@ def test_lookup_by_sha256(tracker_server):
     assert res["status"] == "NOT_FOUND"
 
 
+def test_list_peers_returns_active_snapshot(tracker_server):
+    send_message({
+        "action": "REGISTER",
+        "port": 6010,
+        "files": ["alpha.iso"],
+        "size": 100,
+        "sha256": "hash-alpha"
+    })
+    send_message({
+        "action": "REGISTER",
+        "port": 6011,
+        "files": ["beta.iso"],
+        "size": 200,
+        "sha256": "hash-beta"
+    })
+
+    res = send_message({"action": "LIST_PEERS"})
+    assert res["status"] == "OK"
+    assert res["peer_count"] == 2
+    assert [peer["port"] for peer in res["peers"]] == [6010, 6011]
+    assert res["peers"][0]["files"] == ["alpha.iso"]
+    assert res["peers"][1]["files"] == ["beta.iso"]
+
+
 def test_update_chunks(tracker_server):
     """
     Testa a atualização de chunks disponíveis de um peer.

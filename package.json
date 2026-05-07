@@ -1,0 +1,14 @@
+{
+  "name": "p2p-isodistrib-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop shell Electron para o P2P-IsoDistrib",
+  "main": "electron/main.js",
+  "scripts": {
+    "desktop": "electron electron/main.js",
+    "desktop:check": "node --check electron/main.js && node --check electron/preload.js && node --check electron/renderer.js"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0"
+  }
+}

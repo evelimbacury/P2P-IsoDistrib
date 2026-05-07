@@ -71,13 +71,16 @@ def register_published_file(filepath):
         _published_file_paths[os.path.basename(absolute_path)] = absolute_path
 
 
-def _find_served_file(filename):
+def _find_served_file(filename, shared_folder=None, download_folder=None):
+    shared_folder = shared_folder or SHARED_FOLDER
+    download_folder = download_folder or DOWNLOAD_FOLDER
+
     with _published_file_paths_lock:
         registered_path = _published_file_paths.get(filename)
     if registered_path and os.path.isfile(registered_path):
         return registered_path
 
-    for folder in (SHARED_FOLDER, DOWNLOAD_FOLDER):
+    for folder in (shared_folder, download_folder):
         filepath = os.path.join(folder, filename)
         if os.path.isfile(filepath):
             return filepath
@@ -85,7 +88,7 @@ def _find_served_file(filename):
     return None
 
 
-def start_upload_server(peer_port, on_log=None):
+def start_upload_server(peer_port, on_log=None, shared_folder=None, download_folder=None):
     """Create and start a TCP server for serving file chunks."""
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -94,7 +97,7 @@ def start_upload_server(peer_port, on_log=None):
 
     thread = threading.Thread(
         target=serve_uploads_forever,
-        args=(server_socket, on_log),
+        args=(server_socket, on_log, shared_folder, download_folder),
         daemon=True,
     )
     thread.start()
@@ -103,14 +106,14 @@ def start_upload_server(peer_port, on_log=None):
     return server_socket
 
 
-def serve_uploads_forever(server_socket, on_log=None):
+def serve_uploads_forever(server_socket, on_log=None, shared_folder=None, download_folder=None):
     """Accept incoming chunk requests indefinitely."""
     while True:
         try:
             client_sock, address = server_socket.accept()
             threading.Thread(
                 target=handle_upload_request,
-                args=(client_sock, address, on_log),
+                args=(client_sock, address, on_log, shared_folder, download_folder),
                 daemon=True,
             ).start()
         except OSError:
@@ -119,7 +122,7 @@ def serve_uploads_forever(server_socket, on_log=None):
             _emit_log(on_log, f"[Upload] Error accepting connection: {e}")
 
 
-def handle_upload_request(client_sock, address, on_log=None):
+def handle_upload_request(client_sock, address, on_log=None, shared_folder=None, download_folder=None):
     """Serve a single GET_CHUNK request from a peer."""
     try:
         request = recv_json(client_sock)
@@ -128,7 +131,7 @@ def handle_upload_request(client_sock, address, on_log=None):
 
         filename = request.get("filename", "")
         chunk_index = request.get("chunk_index", 0)
-        filepath = _find_served_file(filename)
+        filepath = _find_served_file(filename, shared_folder=shared_folder, download_folder=download_folder)
 
         if filepath is None:
             send_json(client_sock, {"status": "ERROR", "message": "File not found"})
@@ -194,6 +197,7 @@ def download_single_chunk(
     peer_workload, workload_lock,
     active_count, active_lock,
     on_log=None,
+    download_folder=None,
 ):
     """Download one chunk, retrying on different peers on failure."""
     primary_key = f"{peers_with_chunk[0]['ip']}:{peers_with_chunk[0]['port']}"
@@ -238,7 +242,8 @@ def download_single_chunk(
                     got = len(data) if data else 0
                     raise ConnectionError(f"Incomplete data: got {got}/{data_len} bytes")
 
-                part_path = os.path.join(DOWNLOAD_FOLDER, f"{filename}.part{chunk_index}")
+                target_download_folder = download_folder or DOWNLOAD_FOLDER
+                part_path = os.path.join(target_download_folder, f"{filename}.part{chunk_index}")
                 with open(part_path, "wb") as f:
                     f.write(data)
 
@@ -270,14 +275,15 @@ def download_single_chunk(
             peer_workload[primary_key] = max(0, peer_workload.get(primary_key, 0) - 1)
 
 
-def download_file_parallel(file_info, peers_list, on_progress=None, on_log=None):
+def download_file_parallel(file_info, peers_list, on_progress=None, on_log=None, download_folder=None):
     """Download a file in parallel from multiple peers. Returns local path or None."""
     filename = file_info["name"]
     file_size = file_info["size"]
     expected_sha256 = file_info["sha256"]
 
-    os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
-    dest_path = os.path.join(DOWNLOAD_FOLDER, filename)
+    target_download_folder = download_folder or DOWNLOAD_FOLDER
+    os.makedirs(target_download_folder, exist_ok=True)
+    dest_path = os.path.join(target_download_folder, filename)
     total_chunks = (file_size + CHUNK_SIZE - 1) // CHUNK_SIZE
 
     chunks_status = [None] * total_chunks
@@ -373,6 +379,7 @@ def download_file_parallel(file_info, peers_list, on_progress=None, on_log=None)
                     peer_workload, workload_lock,
                     active_count, active_lock,
                     on_log,
+                    target_download_folder,
                 ),
                 daemon=True,
             )

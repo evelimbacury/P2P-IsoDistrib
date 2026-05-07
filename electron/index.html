@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>P2P-IsoDistrib</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
+    <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="brand-block">
+                <h1><i class="fas fa-network-wired"></i> P2P-IsoDistrib</i></h1>
+            </div>
+
+            <div class="topbar-metrics">
+                <div class="metric-chip" title="Peers na swarm atual">
+                    <span class="metric-label"><i class="fas fa-users"></i> Peers</span>
+                    <strong id="metric-peers" class="metric-value">0</strong>
+                </div>
+                <div class="metric-chip" title="Arquivos anunciados na rede">
+                    <span class="metric-label"><i class="fas fa-file-alt"></i> Arquivos Publicados</span>
+                    <strong id="metric-files" class="metric-value">0</strong>
+                </div>
+                <div class="metric-chip" title="Arquivos locais">
+                    <span class="metric-label"><i class="fas fa-folder-open"></i> Locais</span>
+                    <strong id="metric-local" class="metric-value">0</strong>
+                </div>
+            </div>
+
+            <div class="topbar-actions">
+                <button id="publish-file-top" class="primary-button"><i class="fas fa-plus-circle"></i> Compartilhar ISO</button>
+                <button id="toggle-settings" class="ghost-button" title="Configurações"><i class="fas fa-cog"></i></button>
+            </div>
+        </header>
+
+        <div id="settings-modal" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2><i class="fas fa-sliders-h"></i> Configurações</h2>
+                    <button id="close-settings-modal" class="ghost-button"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="modal-body">
+                    <div class="field-grid field-grid-3cols">
+                        <label>
+                            <span><i class="fas fa-map-marker-alt"></i> IP do tracker</span>
+                            <input id="tracker-host" placeholder="127.0.0.1" />
+                        </label>
+                        <label>
+                            <span><i class="fas fa-plug"></i> Porta do tracker</span>
+                            <input id="tracker-port" type="number" min="1" max="65535" />
+                        </label>
+                        <label>
+                            <span><i class="fas fa-laptop"></i> Porta deste peer</span>
+                            <input id="peer-port" type="number" min="1" max="65535" />
+                        </label>
+                        <label>
+                            <span><i class="fas fa-share-alt"></i> Pasta compartilhada</span>
+                            <div class="input-with-button">
+                                <input id="shared-folder" placeholder="automática" />
+                                <button id="pick-shared-folder" class="ghost-button"><i class="fas fa-folder-open"></i></button>
+                            </div>
+                        </label>
+                        <label>
+                            <span><i class="fas fa-download"></i> Pasta de downloads</span>
+                            <div class="input-with-button">
+                                <input id="download-folder" placeholder="automática" />
+                                <button id="pick-download-folder" class="ghost-button"><i class="fas fa-folder-open"></i></button>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button id="refresh-state" class="secondary-button"><i class="fas fa-sync-alt"></i> Atualizar</button>
+                    </div>
+                    <p class="inline-note" id="local-ips"><i class="fas fa-network-wired"></i> IPs locais: carregando...</p>
+                </div>
+                <div class="modal-footer">
+                    <button id="close-settings-done" class="primary-button"><i class="fas fa-check"></i> Fechar</button>
+                </div>
+            </div>
+        </div>
+
+        <main class="workspace">
+            <section id="action-feedback" class="action-feedback hidden">
+                <span id="action-feedback-text">Aguardando ações...</span>
+            </section>
+            <nav class="tab-bar">
+                <button class="tab active" data-tab="search"><i class="fas fa-search"></i> Pesquisar arquivos</button>
+                <button class="tab" data-tab="library"><i class="fas fa-folder-open"></i> Minha biblioteca</button>
+                <button class="tab" data-tab="network"><i class="fas fa-download"></i> Downloads</button>
+                <button class="tab" data-tab="logs"><i class="fas fa-history"></i> Logs</button>
+            </nav>
+
+            <section id="tab-search" class="tab-content active">
+                <div class="panel-header">
+                    <div>
+                        <h2><i class="fas fa-search"></i> Pesquisar arquivos na rede</h2>
+                    </div>
+                    <div class="search-row">
+                        <input id="search-query" placeholder="Ex.: ubuntu, debian, sha256..." class="filter-input"/>
+                        <button id="search-button" class="primary-button"><i class="fas fa-search"></i> Pesquisar</button>
+                    </div>
+                </div>
+                <div class="table-card">
+                    <div class="table-title-row">
+                        <h3><i class="fas fa-list"></i> Resultados</h3>
+                    </div>
+                    <div class="table-shell tall">
+                        <table>
+                            <thead><tr><th>Arquivo</th><th>Tamanho</th><th>Peers</th><th>Ação</th></tr></thead>
+                            <tbody id="search-results-body"><tr><td colspan="4" class="empty-cell">Nenhuma pesquisa realizada.</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <section id="tab-library" class="tab-content">
+                <div class="panel-header">
+                    <div>
+                        <p class="panel-eyebrow"><i class="fas fa-database"></i> Biblioteca</p>
+                        <h2>Meus arquivos</h2>
+                    </div>
+                    <input id="library-filter" placeholder="Filtrar arquivos..." class="filter-input" />
+                </div>
+                <div class="table-card">
+                    <div class="table-shell medium">
+                        <table>
+                            <thead><tr><th>Arquivo</th><th>Tamanho</th><th>SHA256</th></tr></thead>
+                            <tbody id="local-files-body"><tr><td colspan="3" class="empty-cell">Nenhuma ISO local.</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <section id="tab-network" class="tab-content">
+                <div class="panel-header">
+                    <div>
+                        <p class="panel-eyebrow"><i class="fas fa-download"></i> Downloads</p>
+                        <h2>Transferências</h2>
+                    </div>
+                </div>
+
+                <div class="downloads-detailed">
+                    <div class="progress-header">
+                        <span><i class="fas fa-tachometer-alt"></i> <strong>Downloads ativos</strong></span>
+                        <span id="upload-speed"><i class="fas fa-arrow-up"></i> Upload: 0 B/s</span>
+                    </div>
+                    <div id="multi-downloads" class="multi-downloads"></div>
+                </div>
+
+                <div class="split-lists">
+                    <div class="list-card">
+                        <h3><i class="fas fa-history"></i> Histórico de downloads</h3>
+                        <ul id="download-list" class="download-list"><li class="empty-cell">Nenhum download concluído.</li></ul>
+                    </div>
+                </div>
+            </section>
+
+            <section id="tab-logs" class="tab-content">
+                <div class="panel-header">
+                    <div>
+                        <p class="panel-eyebrow"><i class="fas fa-terminal"></i> Sistema</p>
+                        <h2>Logs do peer</h2>
+                    </div>
+                    <button id="clear-logs" class="ghost-button"><i class="fas fa-trash-alt"></i> Limpar logs</button>
+                </div>
+                <div class="table-card">
+                    <div class="table-shell logs-shell">
+                        <table class="logs-table">
+                            <thead><tr><th>Horário</th><th>Nível</th><th>Mensagem</th></tr></thead>
+                            <tbody id="logs-body"><tr><td colspan="3" class="empty-cell">Nenhum log registrado.</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="status-bar">
+            <span id="peer-status"><i class="fas fa-circle"></i> Sessão local inativa</span>
+            <span id="local-ip-display"><i class="fas fa-ip"></i> IP: --</span>
+            <span id="peer-port-display"><i class="fas fa-plug"></i> Porta: --</span>
+        </footer>
+    </div>
+
+    <script src="./renderer.js"></script>
+</body>
+</html>

@@ -25,6 +25,7 @@ from src.common.protocol import (
     ACTION_LOOKUP,
     ACTION_UNREGISTER,
     ACTION_UPDATE_CHUNKS,
+    ACTION_LIST_PEERS,
     send_json,
     recv_json,
     clear_recv_buffer,
@@ -402,6 +403,30 @@ def handle_update_chunks(data, addr):
     return {"status": "OK", "message": "Chunks updated"}
 
 
+def handle_list_peers(_data, _addr):
+    """Retorna um snapshot dos peers ativos e dos arquivos publicados por cada um."""
+    now = time.time()
+
+    with peers_lock:
+        peers = [
+            {
+                "ip": peer_info["ip"],
+                "port": peer_info["port"],
+                "files": sorted(peer_info["files"].keys()),
+                "file_count": len(peer_info["files"]),
+                "last_heartbeat_age_seconds": round(max(0.0, now - peer_info["last_heartbeat"]), 2),
+            }
+            for peer_info in peers_dict.values()
+        ]
+
+    peers.sort(key=lambda peer: (peer["ip"], peer["port"]))
+    return {
+        "status": "OK",
+        "peer_count": len(peers),
+        "peers": peers,
+    }
+
+
 # ==============================================================================
 # HANDLER PRINCIPAL DE CLIENTE
 # ==============================================================================
@@ -447,10 +472,12 @@ def handle_client(client_socket, addr):
                 response = handle_unregister(data, addr)
             elif action == ACTION_UPDATE_CHUNKS:
                 response = handle_update_chunks(data, addr)
+            elif action == ACTION_LIST_PEERS:
+                response = handle_list_peers(data, addr)
             else:
                 response = {
                     "status": "ERROR",
-                    "message": f"Unknown action: '{action}'. Valid: REGISTER, HEARTBEAT, LOOKUP, UNREGISTER, UPDATE_CHUNKS"
+                    "message": f"Unknown action: '{action}'. Valid: REGISTER, HEARTBEAT, LOOKUP, UNREGISTER, UPDATE_CHUNKS, LIST_PEERS"
                 }
                 logger.warning(f"[Tracker] Unknown action '{action}' from {peer_addr_str}")
 
@@ -540,6 +567,8 @@ def tracker_console():
 def main():
     global active_connections
     setup_logging(log_file=LOG_FILE)
+    bind_host = os.environ.get("TRACKER_BIND_HOST", TRACKER_BIND_HOST)
+    bind_port = int(os.environ.get("TRACKER_PORT", TRACKER_PORT))
     logger.info("=" * 60)
     logger.info("  P2P-IsoDistrib - Tracker Server (Tema 7)")
     logger.info("=" * 60)
@@ -555,10 +584,10 @@ def main():
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     try:
-        server_socket.bind((TRACKER_BIND_HOST, TRACKER_PORT))
+        server_socket.bind((bind_host, bind_port))
         server_socket.listen(LISTEN_BACKLOG)
         server_socket.settimeout(1.0)
-        logger.info(f"[Tracker] Running on {TRACKER_BIND_HOST}:{TRACKER_PORT}")
+        logger.info(f"[Tracker] Running on {bind_host}:{bind_port}")
         logger.info("[Tracker] Waiting for peer connections...\n")
 
         while not stop_event.is_set():
@@ -587,7 +616,7 @@ def main():
                     logger.error(f"[Tracker] Error accepting connection: {e}")
 
     except OSError as e:
-        logger.error(f"[Tracker] Failed to bind port {TRACKER_PORT}: {e}")
+        logger.error(f"[Tracker] Failed to bind port {bind_port}: {e}")
         logger.error("[Tracker] Is another instance running?")
     finally:
         stop_event.set()
