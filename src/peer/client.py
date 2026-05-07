@@ -186,15 +186,20 @@ def shutdown(tracker_sock, peer_port, upload_server_sock=None):
 
 def build_cli_session(tracker_sock, peer_port, upload_server_sock=None, tracker_host=None, tracker_port=None):
     """Cria uma PeerSession usando as operações atuais do módulo da CLI."""
+    def with_tracker_target(func):
+        if tracker_host is None and tracker_port is None:
+            return func
+        return partial(func, tracker_host=tracker_host, tracker_port=tracker_port)
+
     return PeerSession(
         port=peer_port,
         tracker_sock=tracker_sock,
         upload_server_sock=upload_server_sock,
-        connect_func=partial(connect_to_tracker, tracker_host=tracker_host, tracker_port=tracker_port),
-        register_func=partial(send_register, tracker_host=tracker_host, tracker_port=tracker_port),
-        heartbeat_func=partial(send_heartbeat, tracker_host=tracker_host, tracker_port=tracker_port),
-        lookup_func=partial(send_lookup, tracker_host=tracker_host, tracker_port=tracker_port),
-        unregister_func=partial(send_unregister, tracker_host=tracker_host, tracker_port=tracker_port),
+        connect_func=with_tracker_target(connect_to_tracker),
+        register_func=with_tracker_target(send_register),
+        heartbeat_func=with_tracker_target(send_heartbeat),
+        lookup_func=with_tracker_target(send_lookup),
+        unregister_func=with_tracker_target(send_unregister),
         download_func=download_file_parallel,
         upload_server_func=start_upload_server,
         sha256_func=calculate_sha256,

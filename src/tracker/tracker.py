@@ -7,8 +7,10 @@ Execução (a partir da raiz do projeto):
     python -m src.tracker.tracker
 """
 
+import argparse
 import os
 import socket
+import sys
 import threading
 import json
 import time
@@ -70,6 +72,23 @@ connection_lock = threading.Lock()
 
 peer_last_heartbeat_time = {}
 HEARTBEAT_MIN_INTERVAL = 1  # Mínimo 1 segundo entre heartbeats do mesmo peer
+
+
+def parse_args(argv=None):
+    """Processa opções do tracker sem interferir nos testes que chamam main()."""
+    parser = argparse.ArgumentParser(description="P2P-IsoDistrib tracker")
+    parser.add_argument(
+        "--bind-host",
+        default=os.environ.get("TRACKER_BIND_HOST", TRACKER_BIND_HOST),
+        help="Interface de escuta do tracker. Use 0.0.0.0 para LAN.",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("TRACKER_PORT", TRACKER_PORT)),
+        help="Porta TCP do tracker.",
+    )
+    return parser.parse_args(argv or [])
 
 
 # ==============================================================================
@@ -564,11 +583,12 @@ def tracker_console():
 # PONTO DE ENTRADA
 # ==============================================================================
 
-def main():
+def main(argv=None):
     global active_connections
+    args = parse_args(argv)
     setup_logging(log_file=LOG_FILE)
-    bind_host = os.environ.get("TRACKER_BIND_HOST", TRACKER_BIND_HOST)
-    bind_port = int(os.environ.get("TRACKER_PORT", TRACKER_PORT))
+    bind_host = args.bind_host
+    bind_port = args.port
     logger.info("=" * 60)
     logger.info("  P2P-IsoDistrib - Tracker Server (Tema 7)")
     logger.info("=" * 60)
@@ -626,7 +646,7 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        main(sys.argv[1:])
     except KeyboardInterrupt:
         logger.info("\n[Tracker] Interrupted. Shutting down...")
         stop_event.set()

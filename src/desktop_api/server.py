@@ -35,6 +35,16 @@ def _find_free_port():
         return sock.getsockname()[1]
 
 
+def _coerce_port(value, fallback):
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    if 1 <= port <= 65535:
+        return port
+    return fallback
+
+
 class DesktopAppState:
     def __init__(self):
         self._lock = threading.RLock()
@@ -107,9 +117,9 @@ class DesktopAppState:
     def start_session(self, payload):
         tracker_host, tracker_port = resolve_tracker_address(
             payload.get("tracker_host"),
-            payload.get("tracker_port"),
+            _coerce_port(payload.get("tracker_port"), TRACKER_PORT),
         )
-        peer_port = int(payload.get("peer_port") or _find_free_port())
+        peer_port = _coerce_port(payload.get("peer_port"), _find_free_port())
 
         runtime_root = payload.get("runtime_root") or os.path.join(self.runtime_root, f"peer_{peer_port}")
         shared_folder = payload.get("shared_folder") or os.path.join(runtime_root, SHARED_FOLDER)

@@ -16,6 +16,7 @@ const elements = {
   closeSettings: $("close-settings-modal"),
   closeSettingsDone: $("close-settings-done"),
   toggleSettings: $("toggle-settings"),
+  applySettings: $("apply-settings"),
   trackerHost: $("tracker-host"),
   trackerPort: $("tracker-port"),
   peerPort: $("peer-port"),
@@ -24,6 +25,8 @@ const elements = {
   pickSharedFolder: $("pick-shared-folder"),
   pickDownloadFolder: $("pick-download-folder"),
   localIps: $("local-ips"),
+  lanTrackerHost: $("lan-tracker-host"),
+  copyLanHost: $("copy-lan-host"),
   searchQuery: $("search-query"),
   searchButton: $("search-button"),
   searchResultsBody: $("search-results-body"),
@@ -32,6 +35,7 @@ const elements = {
   multiDownloads: $("multi-downloads"),
   uploadSpeedSpan: $("upload-speed"),
   peerStatusSpan: $("peer-status"),
+  trackerTargetDisplay: $("tracker-target-display"),
   localIpDisplay: $("local-ip-display"),
   peerPortDisplay: $("peer-port-display"),
   libraryFilter: $("library-filter"),
@@ -82,6 +86,24 @@ function formatETA(seconds) {
   if (hrs > 0) return `${hrs}h ${mins}m`;
   if (mins > 0) return `${mins}m ${secs}s`;
   return `${secs}s`;
+}
+
+function parsePort(value, fallback) {
+  const parsed = parseInt(value, 10);
+  if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535) {
+    return parsed;
+  }
+  return fallback;
+}
+
+function getSessionConfigFromForm() {
+  return {
+    tracker_host: elements.trackerHost?.value.trim() || desktopContext?.preferredTrackerHost || "127.0.0.1",
+    tracker_port: parsePort(elements.trackerPort?.value, desktopContext?.preferredTrackerPort || 5000),
+    peer_port: parsePort(elements.peerPort?.value, 6000),
+    shared_folder: elements.sharedFolder?.value.trim() || undefined,
+    download_folder: elements.downloadFolder?.value.trim() || undefined,
+  };
 }
 
 function addSystemMessage(level, text, keepInLogs = true) {
@@ -230,6 +252,11 @@ function renderState(state) {
       ? '<i class="fas fa-circle" style="color:#5ed89f"></i> Sessao local pronta'
       : '<i class="fas fa-circle" style="color:#aaa"></i> Sessao local inativa';
   }
+  if (elements.trackerTargetDisplay) {
+    const trackerHost = config.tracker_host || desktopContext?.preferredTrackerHost || "--";
+    const trackerPort = config.tracker_port || desktopContext?.preferredTrackerPort || "--";
+    elements.trackerTargetDisplay.innerHTML = `<i class="fas fa-map-marker-alt"></i> Tracker: ${trackerHost}:${trackerPort}`;
+  }
   if (elements.localIpDisplay) {
     elements.localIpDisplay.innerHTML = `<i class="fas fa-ip"></i> IP: ${desktopContext?.localIps?.[0] || "--"}`;
   }
@@ -284,21 +311,46 @@ async function hydrateDesktopContext() {
   if (desktopContext?.localIps && elements.localIps) {
     elements.localIps.innerHTML = `<i class="fas fa-network-wired"></i> IPs locais: ${desktopContext.localIps.join(" | ")}`;
   }
+  if (elements.lanTrackerHost) {
+    elements.lanTrackerHost.textContent = desktopContext?.suggestedLanTrackerHost || "--";
+  }
+  if (elements.trackerHost && !elements.trackerHost.value) {
+    elements.trackerHost.value = desktopContext?.preferredTrackerHost || "127.0.0.1";
+  }
+  if (elements.trackerPort && !elements.trackerPort.value) {
+    elements.trackerPort.value = desktopContext?.preferredTrackerPort || 5000;
+  }
+  if (elements.peerPort && !elements.peerPort.value) {
+    elements.peerPort.value = 6000;
+  }
 }
 
 async function startSession() {
   try {
-    await apiPost("/session/start", {
-      tracker_host: elements.trackerHost?.value.trim(),
-      tracker_port: parseInt(elements.trackerPort?.value, 10) || 5000,
-      peer_port: parseInt(elements.peerPort?.value, 10) || 6000,
-      shared_folder: elements.sharedFolder?.value.trim() || undefined,
-      download_folder: elements.downloadFolder?.value.trim() || undefined,
-    });
-    addSystemMessage("success", "Sessao local iniciada.", true);
+    const config = getSessionConfigFromForm();
+    await apiPost("/session/start", config);
+    addSystemMessage("success", `Sessao local conectando em ${config.tracker_host}:${config.tracker_port}.`, true);
     await refreshState();
   } catch (error) {
     addSystemMessage("error", error.message, true);
+  }
+}
+
+async function applySettings() {
+  const config = getSessionConfigFromForm();
+  try {
+    await window.desktopBridge.saveTrackerConfig({
+      trackerHost: config.tracker_host,
+      trackerPort: config.tracker_port,
+      bindHost: "0.0.0.0",
+    });
+    desktopContext = await window.desktopBridge.getDesktopContext();
+    await startSession();
+    setActionFeedback("success", `Tracker configurado: ${config.tracker_host}:${config.tracker_port}`);
+    elements.settingsModal?.classList.add("hidden");
+  } catch (error) {
+    addSystemMessage("error", error.message, true);
+    setActionFeedback("error", error.message);
   }
 }
 
@@ -354,6 +406,13 @@ function bindEvents() {
   elements.publishFileTop?.addEventListener("click", publishFile);
   elements.searchButton?.addEventListener("click", performSearch);
   elements.refreshState?.addEventListener("click", refreshState);
+  elements.applySettings?.addEventListener("click", applySettings);
+  elements.copyLanHost?.addEventListener("click", async () => {
+    const host = desktopContext?.suggestedLanTrackerHost || elements.lanTrackerHost?.textContent || "";
+    if (!host || host === "--") return;
+    await window.desktopBridge.copyText(host);
+    setActionFeedback("success", `IP copiado: ${host}`);
+  });
   elements.pickSharedFolder?.addEventListener("click", async () => {
     const folder = await window.desktopBridge.pickFolder();
     if (folder && elements.sharedFolder) elements.sharedFolder.value = folder;

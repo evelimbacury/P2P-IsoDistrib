@@ -141,6 +141,12 @@ Para iniciar a interface Electron:
 npm run desktop
 ```
 
+No uso em LAN, abra as configurações pelo botão de engrenagem:
+
+1. No computador que executa o tracker, copie o IP exibido em **IP deste computador na LAN**.
+2. Nos computadores dos peers, cole esse IP em **IP do tracker**.
+3. Clique em **Aplicar e salvar** para reiniciar a sessão do peer já apontando para o tracker remoto.
+
 > Observação: o Electron depende de `npm install` porque a dependência `electron`
 > não faz parte do repositório.
 
@@ -317,7 +323,7 @@ python -m venv .venv
 Para expor o tracker para outros colegas na mesma LAN, use:
 
 ```bash
-TRACKER_BIND_HOST=0.0.0.0 TRACKER_PORT=5000 .venv/bin/python -m src.tracker.tracker
+.venv/bin/python -m src.tracker.tracker --bind-host 0.0.0.0 --port 5000
 ```
 
 **Terminal 2 — Peer (porta 6000):**

@@ -39,6 +39,12 @@ PEER_BASE_PORT = 6000
 BUFFER_SIZE = 4096
 ```
 
+O tracker também aceita configuração por CLI:
+
+```bash
+python -m src.tracker.tracker --bind-host 0.0.0.0 --port 5000
+```
+
 Nota de segurança: O tracker utiliza apenas o endereço de origem da conexão (`addr[0]`) para identificar o peer, ignorando qualquer IP enviado no JSON. Isso impede spoofing de IP.
 
 ### Constantes de arquivo

@@ -42,6 +42,14 @@
                     <button id="close-settings-modal" class="ghost-button"><i class="fas fa-times"></i></button>
                 </div>
                 <div class="modal-body">
+                    <div class="lan-strip">
+                        <div>
+                            <span class="field-caption"><i class="fas fa-broadcast-tower"></i> IP deste computador na LAN</span>
+                            <strong id="lan-tracker-host">--</strong>
+                        </div>
+                        <button id="copy-lan-host" class="ghost-button"><i class="fas fa-copy"></i> Copiar IP</button>
+                    </div>
+
                     <div class="field-grid field-grid-3cols">
                         <label>
                             <span><i class="fas fa-map-marker-alt"></i> IP do tracker</span>
@@ -73,6 +81,7 @@
 
                     <div class="modal-actions">
                         <button id="refresh-state" class="secondary-button"><i class="fas fa-sync-alt"></i> Atualizar</button>
+                        <button id="apply-settings" class="primary-button"><i class="fas fa-plug"></i> Aplicar e salvar</button>
                     </div>
                     <p class="inline-note" id="local-ips"><i class="fas fa-network-wired"></i> IPs locais: carregando...</p>
                 </div>
@@ -179,6 +188,7 @@
 
         <footer class="status-bar">
             <span id="peer-status"><i class="fas fa-circle"></i> Sessão local inativa</span>
+            <span id="tracker-target-display"><i class="fas fa-map-marker-alt"></i> Tracker: --</span>
             <span id="local-ip-display"><i class="fas fa-ip"></i> IP: --</span>
             <span id="peer-port-display"><i class="fas fa-plug"></i> Porta: --</span>
         </footer>

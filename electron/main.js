@@ -73,15 +73,36 @@ function readTrackerConfig() {
 function getDesktopContext() {
   const trackerConfig = readTrackerConfig();
   const localIps = getLocalIPv4Addresses();
-  const preferredTrackerHost = trackerConfig?.trackerHost || localIps[0] || "127.0.0.1";
+  const preferredTrackerHost = trackerConfig?.trackerHost || process.env.TRACKER_HOST || "127.0.0.1";
   const preferredTrackerPort = Number(trackerConfig?.trackerPort || process.env.TRACKER_PORT || 5000);
 
   return {
     trackerConfig,
     localIps,
+    suggestedLanTrackerHost: localIps[0] || "127.0.0.1",
     preferredTrackerHost,
     preferredTrackerPort,
   };
+}
+
+function saveTrackerConfig(config = {}) {
+  const trackerHost = String(config.trackerHost || "").trim() || "127.0.0.1";
+  const trackerPort = Number(config.trackerPort || 5000);
+  const bindHost = String(config.bindHost || "0.0.0.0").trim() || "0.0.0.0";
+
+  if (!Number.isInteger(trackerPort) || trackerPort < 1 || trackerPort > 65535) {
+    throw new Error("Porta do tracker invalida.");
+  }
+
+  const payload = {
+    trackerHost,
+    trackerPort,
+    bindHost,
+    updatedAt: new Date().toISOString(),
+  };
+
+  fs.writeFileSync(getTrackerConfigPath(), `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  return payload;
 }
 
 function resolvePythonCommand() {
@@ -238,6 +259,8 @@ ipcMain.handle("pick-folder", async () => {
 });
 
 ipcMain.handle("get-desktop-context", () => getDesktopContext());
+
+ipcMain.handle("save-tracker-config", (_event, config) => saveTrackerConfig(config));
 
 ipcMain.handle("copy-text", (_event, text) => {
   clipboard.writeText(String(text || ""));

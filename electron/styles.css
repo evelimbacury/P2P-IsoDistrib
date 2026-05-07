@@ -95,6 +95,26 @@ body {
 }
 .modal-footer { border-top: 1px solid var(--line); border-bottom: none; justify-content: flex-end; gap: 12px; }
 .modal-body { padding: 20px 24px; display: flex; flex-direction: column; gap: 20px; }
+.lan-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(57,192,176,0.08);
+}
+.lan-strip strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 1.15rem;
+}
+.field-caption {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
 .field-grid-3cols {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
