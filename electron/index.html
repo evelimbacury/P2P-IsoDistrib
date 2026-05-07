@@ -31,6 +31,7 @@
 
             <div class="topbar-actions">
                 <button id="publish-file-top" class="primary-button"><i class="fas fa-plus-circle"></i> Compartilhar ISO</button>
+                <button id="create-test-iso-top" class="secondary-button"><i class="fas fa-file-circle-plus"></i> Criar ISO teste</button>
                 <button id="toggle-settings" class="ghost-button" title="Configurações"><i class="fas fa-cog"></i></button>
             </div>
         </header>
@@ -131,13 +132,16 @@
                         <p class="panel-eyebrow"><i class="fas fa-database"></i> Biblioteca</p>
                         <h2>Meus arquivos</h2>
                     </div>
-                    <input id="library-filter" placeholder="Filtrar arquivos..." class="filter-input" />
+                    <div class="library-actions">
+                        <button id="create-test-iso-library" class="secondary-button"><i class="fas fa-file-circle-plus"></i> Criar ISO teste</button>
+                        <input id="library-filter" placeholder="Filtrar arquivos..." class="filter-input" />
+                    </div>
                 </div>
                 <div class="table-card">
                     <div class="table-shell medium">
                         <table>
-                            <thead><tr><th>Arquivo</th><th>Tamanho</th><th>SHA256</th></tr></thead>
-                            <tbody id="local-files-body"><tr><td colspan="3" class="empty-cell">Nenhuma ISO local.</td></tr></tbody>
+                            <thead><tr><th>Arquivo</th><th>Tamanho</th><th>SHA256</th><th>Ação</th></tr></thead>
+                            <tbody id="local-files-body"><tr><td colspan="4" class="empty-cell">Nenhuma ISO local.</td></tr></tbody>
                         </table>
                     </div>
                 </div>

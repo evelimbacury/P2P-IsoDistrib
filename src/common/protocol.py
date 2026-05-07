@@ -12,7 +12,7 @@ logger = logging.getLogger("P2P-IsoDistrib.Protocol")
 TRACKER_BIND_HOST = '0.0.0.0'   # Endereço usado pelo tracker para bind()
 TRACKER_CONNECT_HOST = '127.0.0.1'  # Endereço que clientes usam para se conectar localmente
 TRACKER_HOST = TRACKER_CONNECT_HOST  # Compatibilidade com código legado
-TRACKER_PORT = 5000                 # Porta onde o Tracker escuta
+TRACKER_PORT = 5050                 # Porta onde o Tracker escuta
 
 # O Peer usará uma porta base ou dinâmica. Para testes, podemos usar 6000+.
 PEER_BASE_PORT = 6000
@@ -29,7 +29,7 @@ _json_recv_lock = threading.Lock()
 # ==============================================================================
 # Tamanho de cada pedaço (chunk) para download paralelo.
 # 1 MB (1024 * 1024 bytes) é um bom equilíbrio para ISOs grandes.
-CHUNK_SIZE = 1024 * 1024  
+CHUNK_SIZE = 1024 * 1024
 
 # Extensões de arquivo que o sistema aceita (Case Insensitive)
 ALLOWED_EXTENSIONS = ['.iso']
@@ -47,7 +47,7 @@ HEARTBEAT_INTERVAL = 30  # segundos (enviar sinal para o tracker)
 PEER_TIMEOUT = 60        # segundos (tempo sem heartbeat para remover peer morto)
 
 # ==============================================================================
-# FUNÇÕES AUXILIARES DE COMUNICAÇÃO 
+# FUNÇÕES AUXILIARES DE COMUNICAÇÃO
 # ==============================================================================
 def send_json(sock, data):
     """
@@ -105,11 +105,11 @@ def _recv_exact(sock, expected_bytes, timeout=10):
 def recv_json(sock, timeout=5):
     """
     Recebe uma string JSON terminada em newline e converte para dicionário Python.
-    
+
     Args:
         sock: Socket para receber dados
         timeout: Timeout em segundos (padrão: 5s)
-    
+
     Returns:
         dict: Dados JSON decodificados ou None em caso de erro
     """

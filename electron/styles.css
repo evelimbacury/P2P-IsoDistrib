@@ -245,6 +245,7 @@ input:focus { outline: none; border-color: var(--accent); }
 .empty-cell { color: var(--muted); text-align: center; padding: 20px; }
 .split-lists { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 8px; }
 .panel-header, .table-title-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.library-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .filter-input{
   width: 420px;
 }

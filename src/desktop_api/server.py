@@ -45,6 +45,14 @@ def _coerce_port(value, fallback):
     return fallback
 
 
+def _coerce_size_mb(value, fallback=50):
+    try:
+        size_mb = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return min(max(size_mb, 1), 4096)
+
+
 class DesktopAppState:
     def __init__(self):
         self._lock = threading.RLock()
@@ -218,6 +226,34 @@ class DesktopAppState:
             raise RuntimeError("Falha ao compartilhar o arquivo.")
         return self.snapshot()
 
+    def create_test_iso(self, payload):
+        with self._lock:
+            session = self.session
+            shared_folder = session.shared_folder if session else self.config["shared_folder"]
+
+        filename = os.path.basename((payload.get("filename") or "test.iso").strip())
+        if not filename:
+            filename = "test.iso"
+        if not filename.lower().endswith(".iso"):
+            filename = f"{filename}.iso"
+
+        size_mb = _coerce_size_mb(payload.get("size_mb"), 50)
+        size_bytes = size_mb * 1024 * 1024
+        os.makedirs(shared_folder, exist_ok=True)
+        filepath = os.path.abspath(os.path.join(shared_folder, filename))
+        shared_root = os.path.abspath(shared_folder)
+
+        if os.path.commonpath([shared_root, filepath]) != shared_root:
+            raise RuntimeError("Nome de arquivo invalido.")
+
+        if not os.path.exists(filepath) or os.path.getsize(filepath) != size_bytes:
+            with open(filepath, "wb") as file_obj:
+                file_obj.truncate(size_bytes)
+
+        self._push_message("success", f"ISO de teste criada: {filepath}")
+        self.refresh()
+        return self.snapshot()
+
     def download(self, filename):
         with self._lock:
             session = self.session
@@ -324,6 +360,9 @@ class DesktopApiHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/publish":
                 self._json_response(APP_STATE.publish(payload.get("path")))
+                return
+            if parsed.path == "/api/create-test-iso":
+                self._json_response(APP_STATE.create_test_iso(payload))
                 return
             if parsed.path == "/api/download":
                 self._json_response(APP_STATE.download((payload.get("filename") or "").strip()))

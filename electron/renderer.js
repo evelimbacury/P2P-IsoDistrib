@@ -11,6 +11,8 @@ const elements = {
   actionFeedback: $("action-feedback"),
   actionFeedbackText: $("action-feedback-text"),
   publishFileTop: $("publish-file-top"),
+  createTestIsoTop: $("create-test-iso-top"),
+  createTestIsoLibrary: $("create-test-iso-library"),
   refreshState: $("refresh-state"),
   settingsModal: $("settings-modal"),
   closeSettings: $("close-settings-modal"),
@@ -163,9 +165,19 @@ function renderLocalFiles(files) {
   if (!body) return;
   const filter = (elements.libraryFilter?.value || "").toLowerCase();
   const filtered = files.filter((file) => file.name.toLowerCase().includes(filter));
-  body.innerHTML = filtered.length ? "" : '<tr><td colspan="3" class="empty-cell">Nenhum arquivo encontrado.</td></tr>';
+  body.innerHTML = filtered.length ? "" : '<tr><td colspan="4" class="empty-cell">Nenhum arquivo encontrado.</td></tr>';
   filtered.forEach((file) => {
-    body.insertAdjacentHTML("beforeend", `<tr><td><i class="fas fa-file-iso"></i> ${file.name}</td><td>${formatBytes(file.size)}</td><td>${(file.sha256 || "").slice(0, 16)}...</td></tr>`);
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td><i class="fas fa-file-iso"></i> ${file.name}</td>
+      <td>${formatBytes(file.size)}</td>
+      <td>${(file.sha256 || "").slice(0, 16)}...</td>
+      <td><button class="publish-local-btn" data-path="${file.path}"><i class="fas fa-share-alt"></i> Publicar</button></td>
+    `;
+    row.querySelector(".publish-local-btn")?.addEventListener("click", async () => {
+      await publishLocalFile(file.path);
+    });
+    body.appendChild(row);
   });
 }
 
@@ -373,9 +385,37 @@ async function performSearch() {
 async function publishFile() {
   const filepath = await window.desktopBridge.pickIsoFile();
   if (!filepath) return;
-  await apiPost("/publish", { path: filepath });
-  setActionFeedback("success", "ISO compartilhada com sucesso.");
-  await refreshState();
+  await publishLocalFile(filepath);
+}
+
+async function publishLocalFile(filepath) {
+  try {
+    await apiPost("/publish", { path: filepath });
+    setActionFeedback("success", "ISO compartilhada com sucesso.");
+    await refreshState();
+  } catch (error) {
+    addSystemMessage("error", error.message, true);
+    setActionFeedback("error", error.message);
+  }
+}
+
+async function createTestIso() {
+  try {
+    setActionFeedback("warning", "Criando ISO de teste...");
+    await apiPost("/create-test-iso", {
+      filename: "test.iso",
+      size_mb: 50,
+    });
+    setActionFeedback("success", "ISO de teste criada em sua pasta compartilhada.");
+    await refreshState();
+    document.querySelectorAll(".tab").forEach((item) => item.classList.remove("active"));
+    document.querySelectorAll(".tab-content").forEach((content) => content.classList.remove("active"));
+    document.querySelector('.tab[data-tab="library"]')?.classList.add("active");
+    document.getElementById("tab-library")?.classList.add("active");
+  } catch (error) {
+    addSystemMessage("error", error.message, true);
+    setActionFeedback("error", error.message);
+  }
 }
 
 async function downloadFile(filename) {
@@ -404,6 +444,8 @@ async function downloadFile(filename) {
 
 function bindEvents() {
   elements.publishFileTop?.addEventListener("click", publishFile);
+  elements.createTestIsoTop?.addEventListener("click", createTestIso);
+  elements.createTestIsoLibrary?.addEventListener("click", createTestIso);
   elements.searchButton?.addEventListener("click", performSearch);
   elements.refreshState?.addEventListener("click", refreshState);
   elements.applySettings?.addEventListener("click", applySettings);
